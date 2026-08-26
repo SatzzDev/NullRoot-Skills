@@ -134,6 +134,36 @@
     "use_count": 0,
     "view_count": 0
   },
+  "axolotl": {
+    "archived_at": null,
+    "created_at": "2026-08-26T18:34:41.379453+00:00",
+    "created_by": "installed",
+    "last_patched_at": null,
+    "last_reused_patch_generation": 0,
+    "last_used_at": null,
+    "last_viewed_at": null,
+    "patch_count": 0,
+    "patch_generation": 0,
+    "pinned": false,
+    "state": "active",
+    "use_count": 0,
+    "view_count": 0
+  },
+  "backend-patterns": {
+    "archived_at": null,
+    "created_at": "2026-08-26T22:22:05.601927+00:00",
+    "created_by": null,
+    "last_patched_at": null,
+    "last_reused_patch_generation": 0,
+    "last_used_at": "2026-08-26T22:22:05.616751+00:00",
+    "last_viewed_at": "2026-08-26T22:22:05.601952+00:00",
+    "patch_count": 0,
+    "patch_generation": 0,
+    "pinned": false,
+    "state": "active",
+    "use_count": 1,
+    "view_count": 1
+  },
   "baoyu-infographic": {
     "archived_at": null,
     "created_at": "2026-08-22T01:10:44.410999+00:00",
@@ -299,6 +329,21 @@
     "use_count": 0,
     "view_count": 0
   },
+  "coding-standards": {
+    "archived_at": null,
+    "created_at": "2026-08-26T22:08:16.507893+00:00",
+    "created_by": null,
+    "last_patched_at": null,
+    "last_reused_patch_generation": 0,
+    "last_used_at": "2026-08-26T22:21:56.146668+00:00",
+    "last_viewed_at": "2026-08-26T22:21:56.137249+00:00",
+    "patch_count": 0,
+    "patch_generation": 0,
+    "pinned": false,
+    "state": "active",
+    "use_count": 2,
+    "view_count": 2
+  },
   "comfyui": {
     "archived_at": null,
     "created_at": "2026-08-22T01:10:44.481948+00:00",
@@ -449,6 +494,21 @@
     "use_count": 0,
     "view_count": 0
   },
+  "eval-harness": {
+    "archived_at": null,
+    "created_at": "2026-08-26T19:11:24.875616+00:00",
+    "created_by": null,
+    "last_patched_at": null,
+    "last_reused_patch_generation": 0,
+    "last_used_at": "2026-08-26T19:11:24.875650+00:00",
+    "last_viewed_at": null,
+    "patch_count": 0,
+    "patch_generation": 0,
+    "pinned": false,
+    "state": "active",
+    "use_count": 1,
+    "view_count": 0
+  },
   "evaluating-llms-harness": {
     "archived_at": null,
     "created_at": "2026-08-22T01:10:44.553600+00:00",
@@ -524,6 +584,21 @@
     "use_count": 6,
     "view_count": 5
   },
+  "frontend-patterns": {
+    "archived_at": null,
+    "created_at": "2026-08-26T22:08:11.823544+00:00",
+    "created_by": null,
+    "last_patched_at": null,
+    "last_reused_patch_generation": 0,
+    "last_used_at": "2026-08-26T22:21:50.667017+00:00",
+    "last_viewed_at": "2026-08-26T22:21:50.658063+00:00",
+    "patch_count": 0,
+    "patch_generation": 0,
+    "pinned": false,
+    "state": "active",
+    "use_count": 3,
+    "view_count": 3
+  },
   "gif-search": {
     "archived_at": null,
     "created_at": "2026-08-22T01:10:44.578669+00:00",
@@ -545,14 +620,14 @@
     "created_by": null,
     "last_patched_at": null,
     "last_reused_patch_generation": 0,
-    "last_used_at": "2026-08-25T20:15:22.216324+00:00",
-    "last_viewed_at": "2026-08-25T20:15:22.202352+00:00",
+    "last_used_at": "2026-08-26T18:30:59.789967+00:00",
+    "last_viewed_at": "2026-08-26T18:30:59.773193+00:00",
     "patch_count": 0,
     "patch_generation": 0,
     "pinned": false,
     "state": "active",
-    "use_count": 1,
-    "view_count": 1
+    "use_count": 2,
+    "view_count": 2
   },
   "github-code-review": {
     "archived_at": null,
@@ -1249,15 +1324,15 @@
     "created_at": "2026-08-20T23:13:28.791539+00:00",
     "created_by": "agent",
     "last_patched_at": "2026-08-26T18:27:30.921347+00:00",
-    "last_reused_patch_generation": 18,
-    "last_used_at": "2026-08-26T18:26:43.974757+00:00",
-    "last_viewed_at": "2026-08-26T18:26:43.964335+00:00",
+    "last_reused_patch_generation": 20,
+    "last_used_at": "2026-08-26T18:30:59.757543+00:00",
+    "last_viewed_at": "2026-08-26T18:30:59.737112+00:00",
     "patch_count": 20,
     "patch_generation": 20,
     "pinned": false,
     "state": "active",
-    "use_count": 47,
-    "view_count": 47
+    "use_count": 48,
+    "view_count": 48
   },
   "serving-llms-vllm": {
     "archived_at": null,

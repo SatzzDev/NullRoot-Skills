@@ -1,0 +1,55 @@
+{
+  "jobs": [
+    {
+      "id": "3b63870e924e",
+      "name": "Skills Backup to GitHub",
+      "prompt": "Daily backup of Hermes skills folder to GitHub repository SatzzDev/NullRoot-Skills",
+      "skills": [],
+      "skill": null,
+      "model": null,
+      "provider": null,
+      "provider_snapshot": null,
+      "model_snapshot": null,
+      "base_url": null,
+      "script": "backup-skills.sh",
+      "no_agent": true,
+      "monitor_script": null,
+      "monitor_url": null,
+      "monitor_state": null,
+      "context_from": null,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 6 * * *",
+        "display": "0 6 * * *"
+      },
+      "schedule_display": "0 6 * * *",
+      "repeat": {
+        "times": null,
+        "completed": 0
+      },
+      "enabled": true,
+      "state": "scheduled",
+      "paused_at": null,
+      "paused_reason": null,
+      "created_at": "2026-08-27T01:30:29.027262+07:00",
+      "next_run_at": "2026-08-27T06:00:00+07:00",
+      "last_run_at": null,
+      "last_status": null,
+      "last_error": null,
+      "last_delivery_error": null,
+      "failure_streak": 0,
+      "deliver": "origin",
+      "origin": {
+        "platform": "discord",
+        "chat_id": "1542070372613226557",
+        "chat_name": "SaturiaHost / #hermes-chat / install bun",
+        "thread_id": "1542070372613226557",
+        "user_id": "1051160138746171432",
+        "scope_id": "1483966897560096900"
+      },
+      "enabled_toolsets": null,
+      "workdir": null
+    }
+  ],
+  "updated_at": "2026-08-27T01:30:29.040611+07:00"
+}

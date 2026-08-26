@@ -1,79 +1,60 @@
 # Cloudflare Tunnel Public Hostname Registration
 
-## The Problem
-Adding a DNS CNAME record manually in Cloudflare DNS (e.g. `omniroute.saturia.codes` → 
-`a9521ff9-c74b-422a-a900-6fee7294aa2a.cfargotunnel.com`) causes the domain to resolve to 
-Cloudflare IPs, but requests return **HTTP 404** even when:
-- The local `/etc/cloudflared/config.yml` has the correct ingress rule
-- `cloudflared tunnel ingress validate` passes
-- `cloudflared tunnel ingress rule https://omniroute.saturia.codes` matches the right service
-- The service is running and responding on localhost
+## Problem
+Adding a CNAME record `sub.domain.com → <tunnel-id>.cfargotunnel.com` in Cloudflare DNS will resolve correctly, but the tunnel returns HTTP 404 because the hostname isn't registered with the tunnel itself.
 
-The tunnel logs show no requests arriving for that hostname.
+The ingress rules in `/etc/cloudflared/config.yml` are only for local routing validation, not for registering new hostnames with Cloudflare's edge.
 
-## Root Cause
-Cloudflare Tunnel requires **two-part registration**:
-1. DNS CNAME pointing to the tunnel FQDN (visible to clients)
-2. **Public hostname registration** in the tunnel's control plane (tells Cloudflare edge to route 
-   traffic for that hostname to this specific tunnel)
+## Solution
 
-A manual CNAME satisfies (1) but not (2). Cloudflare edge receives the request but has no 
-mapping from `omniroute.saturia.codes` to tunnel `a9521ff9-...` → returns 404.
+### Option A: Dashboard Method (User)
+1. Delete any manual CNAME record for `<sub>.saturia.codes` (if exists)
+2. Cloudflare Zero Trust → Networks → Tunnels
+3. Select your tunnel → **Public Hostnames** tab
+4. **Add a public hostname**:
+   - **Subdomain:** `omniroute`
+   - **Domain:** `saturia.codes`
+   - **Service Type:** `HTTP`
+   - **URL:** `localhost:20129`
+5. Save → Cloudflare creates the CNAME AND registers it with the tunnel
 
-Local `config.yml` ingress rules are **origin-side only** — they tell cloudflared what to do 
-with traffic it receives, but they don't register the hostname with Cloudflare's edge.
+### Option B: API Token Method (Automatable)
+Requirements:
+- `CLOUDFLARE_API_TOKEN` with scopes: `Zone DNS:Edit` + `Cloudflare Tunnel:Edit`
+- Zone ID for `saturia.codes`
 
-## The Fix
-Delete the manual DNS record, then add the hostname via **Cloudflare Zero Trust dashboard**:
+```bash
+TOKEN="<cf-api-token>"
+ZONE="saturia.codes"
+TUNNEL_ID="a9521ff9-c74b-422a-a900-6fee7294aa2a"
 
-1. https://one.dash.cloudflare.com/
-2. Networks → Tunnels → click your tunnel name (e.g. "satzz-online")
-3. Tab: **Public Hostnames**
-4. Click **Add a public hostname**
-5. Fill in:
-   - **Subdomain:** omniroute
-   - **Domain:** saturia.codes
-   - **Service Type:** HTTP
-   - **URL:** localhost:20129
-6. Save
+# Get zone ID
+ZONE_ID=$(curl -sS -H "Authorization: Bearer $TOKEN" \
+  "https://api.cloudflare.com/client/v4/zones?name=$ZONE" | jq -r '.result[0].id')
 
-This creates BOTH:
-- The DNS CNAME record (same as before)
-- The control-plane registration that routes edge traffic to your tunnel
-
-Within 10-30 seconds, `curl -I https://omniroute.saturia.codes` will return the expected response 
-instead of 404.
-
-## Why Manual CNAME Fails
-The DNS record type shown in the dashboard as "Tunnel" (seen in the session screenshot) is a 
-**special Cloudflare-managed CNAME** created by the Zero Trust API when you add a public hostname. 
-It looks like a regular CNAME but carries metadata that links it to the tunnel control plane.
-
-A hand-created CNAME with the same target has the DNS shape but not the backend registration.
+# Create CNAME record
+curl -sS -X POST "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  --data "{\"type\":\"CNAME\",\"name\":\"omniroute.saturia.codes\",\"content\":\"$TUNNEL_ID.cfargotunnel.com\",\"proxied\":true,\"ttl\":1}"
+```
 
 ## Verification
-After adding via Zero Trust:
 ```bash
-# DNS should resolve to CF edge IPs
-dig +short omniroute.saturia.codes
-# 172.67.178.53
-# 104.21.17.194
+# DNS check
+dig +short omniroute.saturia.codes CNAME
+# Expected: tunnel-id.cfargotunnel.com
 
-# Tunnel should route traffic (not 404)
+# HTTPS check  
 curl -I https://omniroute.saturia.codes
-# HTTP/2 200  (or 307, 301, etc. — anything but 404)
+# Expected: HTTP/2 307 (Next.js) or 200
 ```
 
-Tunnel logs (`sudo journalctl -u cloudflared -f`) should show requests arriving:
-```
-INF Request received connIndex=2 dest=https://omniroute.saturia.codes/ ...
-```
+## Common Error: HTTP 404
+If you see HTTP 404 after setting up DNS:
+- Hostname not registered with tunnel (missing public hostname in Zero Trust)
+- Config.yml ingress not applied (restart tunnel)
+- Local server not listening on the port
 
-If you still see 404 and no logs, the hostname is not registered. Check the Zero Trust dashboard 
-→ Tunnels → [your tunnel] → Public Hostnames tab to confirm it's listed.
-
-## When to Use CLI vs Dashboard
-- **Dashboard (recommended):** easiest path, creates both DNS + registration atomically
-- **CLI with API token:** `cloudflared tunnel route dns <tunnel-name> <hostname>` works but 
-  requires a Cloudflare API token (not the tunnel run token). The VPS has only a run token 
-  (`CLOUDFLARE_TUNNEL_TOKEN=cfut_...`), so CLI registration is not available there.
+## Note
+With a `CLOUDFLARE_TUNNEL_TOKEN` (run token, starts with `cfut_`), you CANNOT create public hostnames. It can only run the tunnel. You need a separate API token with edit permissions.

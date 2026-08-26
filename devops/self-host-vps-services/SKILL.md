@@ -124,10 +124,12 @@ from a separate shell.
 - **Cloudflare Tunnel public hostname registration: DNS CNAME alone is NOT enough.** Adding a manual
   CNAME record `<sub>.saturia.codes` → `<tunnel-id>.cfargotunnel.com` in CF DNS will resolve but
   return **HTTP 404** from the tunnel because the hostname is not registered with the tunnel itself.
-  The local `/etc/cloudflared/config.yml` ingress rule is ignored. **Fix:** delete the manual DNS
-  record, then add the hostname via **Cloudflare Zero Trust dashboard** → Networks → Tunnels →
-  select tunnel → Public Hostnames → Add. This creates BOTH the DNS record AND registers it with the
-  tunnel. Only after this will traffic route correctly. See `references/cloudflare-tunnel-public-hostname.md`.
+  **Fix path A (dashboard):** Delete the manual DNS record (if exists), then add the hostname via
+  **Cloudflare Zero Trust dashboard** → Networks → Tunnels → select tunnel → Public Hostnames →
+  Add. This creates BOTH the DNS record (as CNAME) AND registers it with the tunnel.
+  **Fix path B (API token required):** Use a `CLOUDFLARE_API_TOKEN` with scope `Zone DNS:Edit` +
+  `Cloudflare Tunnel:Edit` to call `cloudflared tunnel route dns <tunnel-id> <sub>.saturia.codes`.
+  Only after this will traffic route correctly. See `references/cloudflare-tunnel-public-hostname.md`.
 - **Next.js dev mode cross-origin blocking.** When exposing a Next.js dev server (e.g. OmniRoute)
   behind a tunnel with a public domain, assets fail to load with "Blocked cross-origin request" and
   the dashboard times out. Dev server only allows `localhost` by default. **Fix:** add the public
