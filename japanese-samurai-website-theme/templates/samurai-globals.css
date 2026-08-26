@@ -1,0 +1,115 @@
+/* Known-good samurai-theme globals.css for Next.js + Tailwind v4.
+   Copy into app/globals.css and adapt. NOTE: the Google Fonts @import MUST
+   precede @import "tailwindcss". */
+
+@import url("https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700;900&family=Noto+Sans+JP:wght@300;400;500;700;900&family=Noto+Serif+JP:wght@400;500;600;700;900&display=swap");
+@import "tailwindcss";
+
+@theme {
+  --color-sumie: #0b0908;
+  --color-washi: #ece3d2;
+  --color-washi-dim: #b8ac96;
+  --color-aka: #c8102e;
+  --color-aka-deep: #7c0a1c;
+  --color-aka-bright: #ef3b3b;
+  --color-kin: #c9a227;
+  --color-kin-light: #eccb5e;
+
+  --font-serif-jp: "Noto Serif JP", "Yu Mincho", serif;
+  --font-sans-jp: "Noto Sans JP", "Yu Gothic", sans-serif;
+  --font-cinzel: "Cinzel", serif;
+}
+
+@layer base {
+  html { scroll-behavior: smooth; }
+  body {
+    background-color: var(--color-sumie);
+    color: var(--color-washi);
+    font-family: var(--font-sans-jp);
+    font-weight: 400;
+    line-height: 1.8;
+    overflow-x: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+  ::selection { background: var(--color-aka); color: var(--color-washi); }
+}
+
+@layer components {
+  .font-display { font-family: var(--font-cinzel), var(--font-serif-jp), serif; letter-spacing: 0.05em; }
+  .font-serif-jp { font-family: var(--font-serif-jp); font-weight: 500; }
+  .font-sans-jp { font-family: var(--font-sans-jp); font-weight: 300; line-height: 1.75; }
+
+  .bg-washi {
+    background-color: #0b0908;
+    background-image:
+      radial-gradient(1100px 700px at 50% -15%, rgba(200,16,46,0.16), transparent 60%),
+      radial-gradient(900px 600px at 92% 108%, rgba(201,162,39,0.10), transparent 55%);
+  }
+
+  .text-samurai {
+    background: linear-gradient(95deg, #ef3b3b 0%, #c8102e 38%, #eccb5e 100%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .text-kin-grad {
+    background: linear-gradient(95deg, #eccb5e, #c9a227);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+
+  .hanko {
+    font-family: var(--font-serif-jp);
+    color: #f4ede0;
+    background: var(--color-aka);
+    border: 2px solid var(--color-aka-bright);
+    box-shadow: 0 0 22px rgba(200,16,46,0.5);
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+
+  .eyebrow { font-family: var(--font-serif-jp); letter-spacing: 0.5em; color: var(--color-kin); font-size: 0.8rem; }
+
+  .brush-rule {
+    height: 3px;
+    background: linear-gradient(90deg, transparent, #c8102e 18%, #eccb5e 82%, transparent);
+    border-radius: 9999px;
+    filter: drop-shadow(0 0 6px rgba(200,16,46,0.45));
+  }
+
+  .katana-line { height: 2px; background: linear-gradient(90deg, transparent, var(--color-aka) 30%, var(--color-kin) 70%, transparent); position: relative; }
+  .katana-line::after {
+    content: ""; position: absolute; right: 0; top: 50%;
+    width: 14px; height: 14px; transform: translate(50%, -50%) rotate(45deg);
+    background: var(--color-kin); box-shadow: 0 0 12px rgba(236,203,94,0.6);
+  }
+
+  .btn-samurai {
+    display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem;
+    padding: 0.9rem 2rem; font-family: var(--font-serif-jp); font-weight: 700; letter-spacing: 0.08em;
+    color: var(--color-washi); background: linear-gradient(120deg, #7c0a1c, #c8102e);
+    border: 1px solid rgba(239,59,59,0.6); border-radius: 4px; transition: all 0.25s ease;
+  }
+  .btn-samurai:hover { transform: translateY(-2px); box-shadow: 0 10px 30px rgba(200,16,46,0.45); background: linear-gradient(120deg, #c8102e, #ef3b3b); }
+
+  .btn-ghost {
+    display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem;
+    padding: 0.9rem 2rem; font-family: var(--font-serif-jp); font-weight: 700; letter-spacing: 0.08em;
+    color: var(--color-kin-light); background: transparent; border: 1px solid rgba(201,162,39,0.55); border-radius: 4px; transition: all 0.25s ease;
+  }
+  .btn-ghost:hover { background: rgba(201,162,39,0.12); color: #f4ede0; transform: translateY(-2px); }
+
+  .card-samurai {
+    background: rgba(15,11,9,0.6); border: 1px solid rgba(200,16,46,0.25); backdrop-filter: blur(6px); transition: all 0.3s ease;
+  }
+  .card-samurai:hover { border-color: rgba(239,59,59,0.6); box-shadow: 0 16px 40px rgba(200,16,46,0.18); transform: translateY(-4px); }
+}
+
+@layer utilities {
+  .vertical-kanji { writing-mode: vertical-rl; text-orientation: upright; }
+}
+
+@keyframes samurai-glow { 0%,100% { filter: drop-shadow(0 0 8px rgba(200,16,46,0.4)); } 50% { filter: drop-shadow(0 0 24px rgba(201,162,39,0.65)); } }
+.animate-samurai-glow { animation: samurai-glow 4s ease-in-out infinite; }
+
+@keyframes blade-flash { 0%{opacity:0.12} 50%{opacity:0.5} 100%{opacity:0.12} }
+.animate-blade-flash { animation: blade-flash 4s ease-in-out infinite; }
+
+@keyframes petal-fall { 0% { transform: translateY(-10vh) translateX(0) rotate(0); opacity: 0; } 10% { opacity: 0.9; } 100% { transform: translateY(110vh) translateX(8vw) rotate(420deg); opacity: 0; } }
+.petal { position: fixed; top: 0; pointer-events: none; z-index: 5; animation: petal-fall linear infinite; }

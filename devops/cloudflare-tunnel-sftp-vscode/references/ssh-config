@@ -1,0 +1,25 @@
+# ~/.ssh/config — append this block to the user's SSH client config.
+# On the WSL/remote host it lives at /home/satzz/.ssh/config; on Windows at
+# C:\Users\satzz\.ssh\config (copy both the key and this block if VSCode runs
+# on the Windows side).
+
+Host sftp-shiroko
+    HostName 127.0.0.1
+    User satzz
+    Port 22
+    IdentityFile ~/.ssh/satzz_sftp_key
+    UserKnownHostsFile /dev/null
+    StrictHostKeyChecking no
+    ProxyCommand cloudflared access tcp --hostname sftp.satzz.online --destination localhost:22
+
+Host *
+    ServerAliveInterval 60
+    ConnectTimeout 30
+
+# Notes:
+# - The ProxyCommand tunnels the SSH connection through Cloudflare, so the real
+#   HostName (127.0.0.1) never gets used on the wire — it just satisfies ssh.
+# - `cloudflared access tcp` negotiates IPv4/IPv6 automatically; do NOT add `-4`
+#   to ssh (it doesn't affect the ProxyCommand's DNS resolution).
+# - Generate the key once: ssh-keygen -t ed25519 -f ~/.ssh/satzz_sftp_key -N ""
+#   then append the .pub to ~/.ssh/authorized_keys on the remote host.
