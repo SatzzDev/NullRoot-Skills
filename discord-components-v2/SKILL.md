@@ -21,6 +21,21 @@ Every component is a plain JSON object with a numeric `type` field. discord.js a
 
 ## ⚡ Quick Start
 
+**For Hermes Discord bot:** Components V2 is automatically enabled. Use special syntax in your messages:
+
+```
+[Container:0x5865F2]
+## Hello World
+This is a container with blue accent
+---
+Separator above
+[/Container]
+
+[Button:primary:Click Me]
+```
+
+**For raw discord.js code:**
+
 ```js
 const IS_COMPONENTS_V2 = 32768;
 
