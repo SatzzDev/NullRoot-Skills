@@ -130,6 +130,18 @@ from a separate shell.
   **Fix path B (API token required):** Use a `CLOUDFLARE_API_TOKEN` with scope `Zone DNS:Edit` +
   `Cloudflare Tunnel:Edit` to call `cloudflared tunnel route dns <tunnel-id> <sub>.saturia.codes`.
   Only after this will traffic route correctly. See `references/cloudflare-tunnel-public-hostname.md`.
+- **⚠️ REMOTELY-MANAGED TUNNEL GOTCHA (saturia VPS specific):** The tunnel `a9521ff9-c74b-422a-a900-6fee7294aa2a`
+  is **remotely-managed** — config is pushed from Cloudflare's API to the edge, NOT read from
+  `/etc/cloudflared/config.yml`. This means:
+  - Editing the local `config.yml` adds routes that are validated locally but **NOT pushed** to the edge.
+  - You MUST add hostnames via the dashboard (Option A) or `cloudflared tunnel route dns` (which calls the API).
+  - Local `config.yml` edits alone are NOT sufficient to register new hostnames.
+  - The tunnel daemon logs `"Updated to new configuration ... version=N"` — this is the REMOTE config
+    being pushed, not your local edits. If your hostname isn't in that JSON, it won't route.
+  - **No CF API token exists on the VPS.** All `cloudflared tunnel route dns` attempts fail with
+    "Cannot determine default origin certificate path" because the Origin CA cert is absent.
+    The user must add hostnames via the CF dashboard, OR supply a `CLOUDFLARE_API_TOKEN`.
+  See `references/cloudflare-tunnel-public-hostname.md` and `references/cloudflare-tunnel-locally-managed.md`.
 - **Next.js dev mode cross-origin blocking.** When exposing a Next.js dev server (e.g. OmniRoute)
   behind a tunnel with a public domain, assets fail to load with "Blocked cross-origin request" and
   the dashboard times out. Dev server only allows `localhost` by default. **Fix:** add the public
@@ -176,3 +188,152 @@ Full recipe in `references/jexactyl-deploy.md`. Key gotchas:
 - `DB_HOST=localhost` uses the MariaDB socket; `127.0.0.1` forces TCP and fails for `jexactyl@localhost`
   ("Access denied"). Keep `localhost`.
 - Queue worker is mandatory (`jexactyl-queue.service`, `www-data`, `queue:work`) or emails/backups stall.
+
+### Pelican Panel (Laravel 13 + Filament/Livewire, port 8088)
+
+Full recipe in `references/pelican-deploy.md`. Key gotchas:
+
+- **Panel location**: `/var/www/pelican` on the root disk (61GB+). Do NOT use `/var/www/pelican` — that was a temporary/ephemeral disk (`/dev/sdc`) that gets wiped on reboot. All paths below use `/var/www/pelican`.
+- **Pelican uses Filament (Livewire)** — the login form uses `wire:submit="authenticate"`, so a direct `POST /login` returns **405 Method Not Allowed**. This is EXPECTED, not a failure. To verify admin credentials, use `artisan tinker` with `Hash::check()` instead (see below).
+- **`php artisan key:generate` can't bootstrap when `APP_KEY` is empty** — generate `base64:$(openssl rand -base64 32)` and write it to `.env` first.
+- **`.env.example` is minimal (6 lines)** — it only has APP_ENV, APP_DEBUG, APP_KEY, APP_URL, APP_INSTALLED, APP_LOCALE. You MUST construct the full `.env` manually: add DB_* (mysql, localhost, pelican db/user), CACHE_STORE=redis, SESSION_DRIVER=redis, QUEUE_CONNECTION=redis, REDIS_* (empty password if unauthenticated), LOG_*, BROADCAST_DRIVER=log, FILESYSTEM_DISK=local.
+- **Redis empty password**: if Redis is unauthenticated (no `requirepass`), set `REDIS_PASSWORD=` (empty). A placeholder like `***` or a fake password breaks cache/session/queue silently.
+- **No DatabaseSeeder** — `database/seeders/` does not exist. Pelican uses custom commands: `p:environment:setup`, `p:redis:setup`, `p:plugin:composer`. `db:seed` runs but seeds nothing; settings come from `p:environment:setup`.
+- **User creation**: `p:user:make --email= --username= --password= --admin=1 --no-interaction` (NOT `user:make` or `user:create`). If the user already exists (duplicate email error), reset the password via tinker:
+  ```bash
+  sudo -u www-data HOME=/var/tmp php artisan tinker --execute="
+  \$u = \App\Models\User::where('username','admin')->first();
+  \$u->password = Hash::make('<new-password>');
+  \$u->save();
+  "
+  ```
+  `HOME=/var/tmp` is required because psy tries to write to `/var/www/.config/psysh` and fails.
+- **`users` table schema differs from Pterodactyl** — no `root_admin` column in current Pelican. Columns include `external_id`, `is_managed_externally`, `uuid`, `username`, `email`, `password`, `language`, `timezone`, `oauth`, `customization`, `mfa_app_secret`, `mfa_app_recovery_codes`, `mfa_email_enabled`. Don't assume Pterodactyl column names.
+- **`APP_INSTALLED=false`** — set in `.env`; Pelican may show an install wizard if not set correctly.
+- **npm build**: `NODE_OPTIONS=--openssl-legacy-provider /home/saturia/.hermes/node/bin/npm install --legacy-peer-deps && NODE_OPTIONS=--openssl-legacy-provider /home/saturia/.hermes/node/bin/npm run build` (script is `build`, not `build:production` in some versions — check `package.json`).
+- **nginx**: `fastcgi_pass unix:/run/php/php8.3-fpm.sock` (socket, NOT 127.0.0.1:9000). `DB_HOST=localhost` (socket, NOT 127.0.0.1).
+- **Queue worker**: `pelican.service`, `www-data`, `ExecStart=/usr/bin/php /var/www/pelican/artisan queue:work --sleep=3 --tries=3`. Mandatory — processes `AccountCreated` notifications etc.
+- **Storage perms**: `chown -R www-data:www-data storage bootstrap/cache` before migrate/seed/tinker.
+- **Panel web settings/plugin saves need www-data ownership of MORE than storage**: "Failed to save Settings — file_put_contents(/var/www/pelican/.env): Permission denied" means `.env` is still owned by saturia; `sudo chown www-data:www-data /var/www/pelican/.env`. "Could not import plugin — mkdir(): Permission denied" means `plugins/` AND `public/` need `sudo chown -R www-data:www-data /var/www/pelican/plugins /var/www/pelican/public`. Do the full sweep once after install: `sudo chown -R www-data:www-data /var/www/pelican/.env /var/www/pelican/plugins /var/www/pelican/storage /var/www/pelican/bootstrap/cache /var/www/pelican/public /var/www/pelican/node_modules`. The `public/` dir is needed because plugins (e.g. `discord-webhooks`) publish CSS to `public/plugins/<name>/css/` at runtime.
+- **Plugin install from web UI needs www-data write on `node_modules` too**: installing a theme plugin (e.g. `nord-theme`) from the admin UI hangs/fails because Pelican runs `yarn install` (spawned in the PHP/www-data context) and yarn must write into `/var/www/pelican/node_modules` — if that dir is still `saturia`-owned, you get `error: EACCES: permission denied, mkdir '/var/www/pelican/node_modules/@rolldown/binding-linux-x64-musl'` plus a harmless yarn cache fallback warning (`/var/www/.cache/yarn` not writable → falls back to `/tmp/.yarn-cache-*`). Fix: include `node_modules` in the www-data chown sweep above, then retry the install in the UI.
+- **CLI plugin ops run as the wrong user fail on the other side of the same coin**: `sudo -u www-data php artisan p:plugin:install nord-theme` (or `p:plugin:update/list/disable/uninstall`) from a shell works when `plugins/` is www-data-owned, but running artisan as `saturia` (plain `php artisan p:plugin:install ...`) fails with `file_put_contents(/var/www/pelican/plugins/nord-theme/plugin.json): Permission denied`. Plugin install/update is a **two-phase build**: (1) downloads plugin into `plugins/<id>/` and (2) runs yarn/composer builds — the first phase needs www-data on `plugins/` (and the CLI must run as www-data), the second needs www-data on `node_modules`. Status/verification: `sudo -u www-data php artisan p:plugin:list` shows per-plugin Status column (`enabled` / `not_installed`); `plugins/<id>/plugin.json` → `meta.status` holds the raw install error message (e.g. EACCES) even when the UI just says "not_installed". Also: `storage/logs/laravel.log` must be writable by whoever runs artisan — if a shell artisan run dies with "stream ... could not be opened in append mode", `sudo chown www-data:www-data /var/www/pelican/storage/logs/laravel.log`.
+- **composer**: `COMPOSER_ALLOW_SUPERUSER=1 composer install --no-dev --no-interaction --prefer-dist`. Set `COMPOSER_CACHE_DIR` to a path on the data disk (not root `/`) to avoid ENOSPC on small root partitions.
+- **`DecryptException: The MAC is invalid` after reinstall**: When you reinstall Pelican with a new `APP_KEY` but reuse the old database, encrypted columns in the DB (e.g. `nodes.daemon_token`, sessions, cached data) fail to decrypt. The `daemon_token` column on the `nodes` table uses Laravel's `encrypted` cast — accessing it auto-decrypts, and a wrong key throws this error. Fix: re-encrypt the token with the new key via PHP and write it with raw SQL (bypassing Eloquent's auto-encrypt):
+  ```bash
+  cd /var/www/pelican
+  ENC=$(php -r "require 'vendor/autoload.php'; \$app = require 'bootstrap/app.php'; \$app->make('Illuminate\\Contracts\\Console\\Kernel')->bootstrap(); echo Illuminate\\Support\\Facades\\Crypt::encrypt('<plaintext-token>');")
+  sudo mysql -u root pelican -e "UPDATE nodes SET daemon_token = '$ENC' WHERE id = 1;"
+  ```
+  Get the plaintext token from `/etc/pelican/config.yml` (the `token:` line — Wings stores it in plaintext there). After fixing, clear caches: `php artisan config:clear && php artisan cache:clear && php artisan optimize:clear`.
+- **Console UI text touches right edge (xterm.js)**: Terminal output is flush against the container edges. Fix is in `resources/css/console.css` — increase `.xterm-rows > div` padding to 16px and add `padding-left: 8px` to `#send-command`. Do NOT pad the `#terminal` container — that misaligns the xterm canvas. See `references/pelican-troubleshooting.md` for details.
+
+### Pelican Wings (Node daemon, Docker-based game server runner)
+
+Wings is the **node daemon** that runs game servers in Docker containers for Pelican Panel. Install after the panel is deployed.
+
+**Prerequisites**: Docker must be installed and running (`docker --version`, `systemctl is-active docker`).
+
+**Install sequence**:
+1. **Download Wings binary** (latest release from `pelican-dev/wings`):
+   ```bash
+   sudo curl -sL https://github.com/pelican-dev/wings/releases/download/v1.0.0-beta29/wings_linux_amd64 -o /usr/local/bin/wings
+   sudo chmod +x /usr/local/bin/wings
+   wings version  # verify (no --version flag)
+   ```
+2. **Configure Wings** via panel-generated token:
+   ```bash
+   sudo mkdir -p /etc/pelican
+   sudo wings configure --panel-url https://panel.saturia.codes --token <papp_...> --node 1 --allow-insecure
+   ```
+   This writes `/etc/pelican/config.yml` with API token, FQDN, ports (SFTP 2022, API 8080).
+3. **systemd unit** (`/etc/systemd/system/wings.service`):
+   ```ini
+   [Unit]
+   Description=Pelican Wings Daemon
+   After=docker.service
+   Requires=docker.service
+   PartOf=docker.service
+
+   [Service]
+   User=root
+   WorkingDirectory=/etc/pelican
+   LimitNOFILE=4096
+   PIDFile=/var/run/wings/daemon.pid
+   ExecStart=/usr/local/bin/wings
+   Restart=on-failure
+   StartLimitInterval=180
+   StartLimitBurst=30
+   RestartSec=5s
+
+   [Install]
+   WantedBy=multi-user.target
+   ```
+   Then: `sudo systemctl daemon-reload && sudo systemctl enable --now wings`.
+4. **Verify**:
+   - `sudo systemctl status wings` → active (running)
+   - `sudo journalctl -u wings -n 30` → "processing servers returned by the API total_configs=0" (no servers yet), "network created successfully", "sftp server listening for connections listen=0.0.0.0:2022".
+   - Docker network: `docker network ls | grep pelican` → `pelican_nw`.
+   - Panel → Nodes → Node #1 → heartbeat should show green/online.
+
+**Key gotchas**:
+- **`wings configure` panics if `/etc/pelican` doesn't exist** — create the dir first (`sudo mkdir -p /etc/pelican`).
+- **Wings listens on port 8080 (API) and 2022 (SFTP)** — ensure these ports are not already in use. If exposing via Cloudflare Tunnel, the tunnel ingress must map `nodes.<domain>` → `http://localhost:8080`, NOT 8443 or 443.
+- **Panel `daemonListen` must be 8080** (not 443) when Wings is behind a Cloudflare Tunnel. The panel config defaults to 443 but the tunnel proxies to localhost:8080. If `daemonListen=443`, the panel attempts to connect on port 443 → connection refused. Fix via tinker:
+  ```bash
+  sudo -u www-data HOME=/var/tmp php artisan tinker --execute="
+  \$n = \App\Models\Node::find(1);
+  \$n->fqdn = 'localhost';
+  \$n->scheme = 'http';
+  \$n->daemon_listen = 8080;
+  \$n->save();
+  echo 'updated: ' . \$n->fqdn . ' ' . \$n->scheme . ':' . \$n->daemon_listen . PHP_EOL;
+  "
+  sudo -u www-data php artisan optimize:clear
+  sudo systemctl restart wings
+  ```
+- **Cloudflare Tunnel public hostname registration** — if Wings API returns 502, verify the hostname is registered in **Cloudflare Zero Trust dashboard** (Networks → Tunnels → Public Hostnames), not just as a manual DNS CNAME. The hostname must be added via the dashboard or `cloudflared tunnel route dns` to register it with the tunnel. See `references/cloudflare-tunnel-public-hostname.md`.
+- **Subnet conflict warning** ("configured subnet conflicts with existing network, letting Docker auto-assign subnet...") is normal and harmless — Wings detects the conflict and auto-adjusts.
+- **User creation**: Wings auto-creates a `pelican` system user (UID 997, GID 986, `/usr/sbin/nologin`) on first start.
+- **Move Docker data-root to the data disk** (this VPS root `/` is only 29GB and fills fast; every game server image/container lands in `/var/lib/docker` otherwise). After Wings works, relocate:
+  ```bash
+  sudo systemctl stop wings docker
+  sudo rsync -aP /var/lib/docker/ /var/www/pelican/docker/
+  sudo mv /var/lib/docker /var/lib/docker.bak
+  sudo mkdir -p /etc/docker
+  printf '{\n  "data-root": "/var/www/pelican/docker"\n}\n' | sudo tee /etc/docker/daemon.json
+  sudo systemctl start docker && sudo systemctl start wings
+  docker info | grep "Docker Root Dir"  # → /var/www/pelican/docker
+  sudo rm -rf /var/lib/docker.bak  # only after wings logs show containers restored
+  ```
+  Verify Wings still sees existing servers/containers after the move (journalctl should show "restoring to previous state").
+- **Move Wings data directories to the data disk** — Wings config defaults to `/var/lib/pelican/*` (root disk) for `root_directory`, `data`, `archive_directory`, `backup_directory`, `log_directory`. Relocate to `/var/www/pelican/wings-data`:
+  ```bash
+  sudo systemctl stop wings
+  sudo mkdir -p /var/www/pelican/wings-data
+  sudo cp -a /var/lib/pelican/. /var/www/pelican/wings-data/
+  sudo chown -R root:root /var/www/pelican/wings-data
+  sudo chmod -R 750 /var/www/pelican/wings-data
+  sudo cp /etc/pelican/config.yml /etc/pelican/config.yml.bak
+  sudo sed -i 's|/var/lib/pelican|/var/www/pelican/wings-data|g; s|/var/log/pelican|/var/www/pelican/wings-data/logs|g' /etc/pelican/config.yml
+  sudo mkdir -p /var/www/pelican/wings-data/logs
+  sudo systemctl start wings
+  ```
+  Verify: `sudo grep -E "root_directory|log_directory|data:|archive_directory|backup_directory" /etc/pelican/config.yml` should show `/var/www/pelican/wings-data/*` paths. `tmp_directory` can stay as `/tmp/pelican` (temporary, no need for persistent disk).
+- **Panel `public/` ownership for plugin CSS** — after `chown -R www-data:www-data /var/www/pelican/public`, plugin CSS publishing works. The `discord-webhooks` plugin specifically needs `public/plugins/discord-webhooks/css/` writable. If `mkdir(): Permission denied` persists after chown, manually create the dir:
+  ```bash
+  sudo -u www-data mkdir -p /var/www/pelican/public/plugins/discord-webhooks/css
+  sudo -u www-data cp /var/www/pelican/plugins/discord-webhooks/css/discord-preview.css /var/www/pelican/public/plugins/discord-webhooks/css/
+  ```
+- **Cloudflare Tunnel route for panel** — add `panel.saturia.codes` → `http://127.0.0.1:8088` to `/etc/cloudflared/config.yml` ingress, then `sudo systemctl restart cloudflared`. The tunnel is remotely-managed (config pushed from Cloudflare API), so local file edits alone won't work — the hostname must be added via **Cloudflare Zero Trust dashboard** (Networks → Tunnels → Public Hostnames → Add) or `cloudflared tunnel route dns`.
+- **Panel node connection troubleshooting** — if panel shows node as offline/red:
+  1. Check Wings is running: `sudo systemctl is-active wings`
+  2. Check panel can reach Wings API: `curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/` (expect 401 = reachable)
+  3. Check node config in panel DB: `sudo -u www-data HOME=/var/tmp php artisan tinker --execute="\$n = \App\Models\Node::find(1); echo \$n->fqdn . ' ' . \$n->scheme . ':' . \$n->daemon_listen . PHP_EOL;"`
+  4. If `fqdn` is a public hostname without tunnel/DNS, change to `localhost` with `scheme=http` (see fix above)
+  5. Check cloudflared logs for origin errors: `sudo journalctl -u cloudflared --no-pager -n 30 | grep -iE "panel.saturia|8088|8080|origin|refused"`
+
+- **Panel node connection troubleshooting** — if panel shows node as offline/red, follow the diagnosis chain in `references/pelican-node-connection-debug.md` (FQDN/scheme mismatch 90% of the time).
+
+- **Troubleshooting common issues** (403 dotfiles, plugin fatal errors, env permission, install hangs) — see `references/pelican-troubleshooting.md`.
+
+Full Wings deploy recipe in `references/pelican-wings-deploy.md`.

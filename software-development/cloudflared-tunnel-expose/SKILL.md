@@ -45,8 +45,51 @@ tags: [Cloudflare, Tunnel, Self-hosting, Reverse Proxy, satzz.online, saturia.co
 6. `sudo systemctl restart cloudflared`. Verify: `curl -sS -o /dev/null -w "%{http_code}\n" https://<host>/`.
 
 ## Adding a new host to an EXISTING tunnel
+
+### Locally-managed tunnel (`config_src: local`)
 Edit `/etc/cloudflared/config.yml` (add `- hostname:`/`service:` entry above the 404 fallback) →
 `sudo systemctl restart cloudflared`. Also add the DNS CNAME (step 5). No need to recreate the tunnel.
+
+### Remotely-managed tunnel (`config_src: cloudflare`)
+The daemon **completely ignores** `/etc/cloudflared/config.yml` ingress changes — config is pushed from Cloudflare's API.
+Editing the local file and running `systemctl restart cloudflared` does nothing: the daemon logs "Updated to new configuration"
+but the loaded JSON (visible in `journalctl -u cloudflared | grep 'Updated to new'`) shows the **old** hostname list pulled from the API.
+
+**Critical**: If you edit `config.yml`, add a hostname, restart the service, and the new hostname does NOT appear in the
+daemon's "Updated to new configuration" JSON log entry, the tunnel is remote-managed. Your local edits are inert. Stop editing
+the file and use the dashboard or API instead.
+
+To add a hostname to a remote tunnel:
+
+1. **DNS route** (once per hostname):
+   ```bash
+   cloudflared --origincert ~/.cloudflared/cert.pem tunnel route dns <tunnel-id> <hostname>
+   ```
+   **Requires the Origin CA cert from `cloudflared tunnel login`** (browser OAuth flow, writes `~/.cloudflared/cert.pem`).
+   - The system CA bundle (`/etc/ssl/certs/ca-certificates.crt`) will NOT work — you get "Error decoding origin cert: missing token in the certificate".
+   - Cloudflare's public Origin CA root (`https://developers.cloudflare.com/ssl/static/origin_ca_rsa_root.pem`) will NOT work either.
+   - The `.cf_token` tunnel token (`cfut_...`) cannot be used with `--origincert` or as a Bearer token for the Cloudflare API — it's a tunnel-run token only.
+   - If running as root or via `sudo`, the cert lands in `/root/.cloudflared/cert.pem` (not the invoking user's home).
+   - If `cloudflared tunnel login` was run as user `saturia`, the cert is in `/home/saturia/.cloudflared/cert.pem`.
+   - Check with `cloudflared tunnel info <tunnel-id>` first to confirm the tunnel name/ID.
+
+2. **Ingress rule** (hostname → service mapping):
+   - Via **dashboard** (easiest for remote tunnels): Cloudflare Zero Trust → Access → Tunnels → select tunnel → Public Hostnames tab → Add
+     - Subdomain: `panel`, Domain: `saturia.codes`
+     - Service: `HTTP`, `127.0.0.1:8088`
+     - **Important**: double-check the port before saving. Dashboard edits may not propagate immediately (cache); if `journalctl -u cloudflared`
+       still shows the old port after restart, delete the hostname and re-add it (forces config refresh).
+   - Via **API** (requires account-scoped API token with Tunnel:Edit; NOT the tunnel run-token):
+     ```bash
+     curl -X PUT "https://api.cloudflare.com/client/v4/accounts/$ACCT/cfd_tunnel/$TUNNEL_ID/configurations" \
+       -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+       -d '{"config":{"ingress":[{"hostname":"panel.saturia.codes","service":"http://127.0.0.1:8088"},{"service":"http_status:404"}]}}'
+     ```
+   The daemon picks up the new config automatically within seconds (no restart needed; watch logs for "Updated to new configuration" with incremented `version=N`).
+
+**Pitfall**: After adding a hostname via the dashboard and restarting cloudflared, if the daemon's loaded config JSON (in logs) still shows
+the wrong port or missing hostname, the dashboard edit may be cached. Delete the hostname entry in the dashboard, save, wait 5 seconds, then
+re-add it with the correct port. This forces a config version bump and immediate propagation.
 
 ## Pitfalls
 - **`config_src: cloudflare` (API default) blocks local ingress.** `PUT cfd_tunnel/<id>/config` returns 404,

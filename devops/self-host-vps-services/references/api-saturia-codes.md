@@ -16,6 +16,7 @@ beyond Express + native `fetch` (Node 22). systemd **user** unit:
 | `/tts` | GET | edge-tts | `?text=` (max 5000), `?voice=` default `id-ID-GadisNeural` -> temp .mp3 |
 | `/yt/search` | GET | `yt-search` npm | `?q=`, `?max=` 1-50 -> id/title/url/thumbnail/author/duration/views |
 | `/screenshot` | GET | `chromium-browser --headless=new` | `?url=`, `?full=1`, `?w=&?h=` -> temp .png |
+| `/upscale` | POST | imglarger photoai | multipart/form-data, field `image` + optional `scale` (2 or 4, default 4) -> `{success, scale, filename, size_bytes, result_url}` |
 | `/health` | GET | — | `{ok:true}` |
 | `/api-docs` | GET | swagger-ui-express | OpenAPI 3.0 docs, dark-themed to match landing page |
 | `/files/:name` | GET | express.static tmp/ | 10-min expiry, `Content-Disposition: attachment` |
@@ -98,7 +99,39 @@ kill a horizontal-scroll bug from wide code blocks.
 `/home/saturia/.hermes/node/bin/node --test test/tiktok.test.js test/tiktok-download.test.js`
 (10 tests, pure helpers — TikWM call is faked). Run after any change to `tiktok.js`.
 
+## Dependencies (newly added)
+- `axios` + `form-data` — used by `upscale.js` for imglarger photoai API calls
+- `multer` — multipart/form-data parsing for `/upscale` file upload
+
+### imglarger pitfall
+imglarger rejects tiny or invalid images with a cryptic `"Cannot destructure property 'code' of 'upload.data.data' as it is null"`. When testing `/upscale`, use a real image (>= 100x100). The `upscale.js` module uses `while` loop (not `for`) for status polling per user preference.
+
+### User style preference: while > for for polling
+For unbounded polling loops with break-on-success, use `while` not `for`. The `for` loop implies a known iteration count; `while` reads cleaner when the loop exits on a condition. Applied in `upscale.js` and should be followed for future polling code in this project.
+
 ## Restart from outside
 The agent CANNOT restart the gateway/service from inside its own session (it would kill its process
 tree). If a restart is needed, tell the user to run `systemctl --user restart api-saturia-codes`
 from a separate shell.
+
+### ⚠️ restart.sh pkill race (Aug 2026 session)
+`restart.sh` uses `pkill -f 'node server.js'` (SIGTERM). Node processes sometimes don't die on
+SIGTERM (especially with child processes or I/O pending), leaving the old server on port 4000.
+The next `node server.js` in the script then hits `EADDRINUSE` and crashes, but the OLD server
+stays alive — **without any new routes added since it started**.
+
+**Symptom**: new endpoints (e.g. `/upscale`) return `Cannot GET /upscale` or old behavior, even
+though the code is correct. The frontend is hitting a stale process.
+
+**Fix**: use `pkill -9 -f 'node server.js'` (SIGKILL) + verify port free before starting:
+```bash
+pkill -9 -f 'node server.js' 2>/dev/null || true
+sleep 1
+lsof -i :4000 >/dev/null && { echo "port still occupied"; exit 1; }
+# then start server
+```
+Updated in `restart.sh` after this bug bit us.
+
+**Pattern**: "Cannot GET" on a route that DEFINITELY exists in the running code is almost always a
+stale process, not a missing route. Kill all instances and restart from scratch before debugging
+the route definition.
