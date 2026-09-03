@@ -18,13 +18,14 @@ Cloudflare Tunnel. No Docker is available on this box — everything is bare nod
 - **Node is NOT in default PATH.** It lives only at `/home/saturia/.hermes/node/bin/node`
   (npm/npx beside it). `9router` fails with `/usr/bin/env: 'node': No such file or directory`, and
   any systemd `ExecStart=/path/cli.js` exits 127.
-- **Fix (do this first, once):** symlink into `/usr/local/bin` so systemd, CLI tools, and shells
-  all find node:
+- **Fix (do this first, once):** symlink into `/usr/local/bin` so systemd, CLI tools, and shells all find node. The symlink is **mandatory** — bare `ExecStart=/path/cli.js` shebangs resolve the interpreter at runtime via PATH, so even with `PATH=` set in the unit file the node binary must live in a PATH directory:
   ```bash
   sudo ln -sf /home/saturia/.hermes/node/bin/node /usr/local/bin/node
   sudo ln -sf /home/saturia/.hermes/node/bin/npm  /usr/local/bin/npm
   sudo ln -sf /home/saturia/.hermes/node/bin/npx  /usr/local/bin/npx
   ```
+  Also add the hermes node bin dir to the unit's `Environment=PATH=` as a belt-and-suspenders fallback:
+  `Environment=PATH=/home/saturia/.hermes/node/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`
 - Cloudflare Tunnel runs as `cloudflared.service` (root), config `/etc/cloudflared/config.yml`,
   `ingress:` maps hostnames → `http://localhost:PORT`. `api.saturia.codes` (4000) and
   `agent.satzz.online` (9119) already exist — append, don't overwrite.
@@ -335,5 +336,6 @@ Wings is the **node daemon** that runs game servers in Docker containers for Pel
 - **Panel node connection troubleshooting** — if panel shows node as offline/red, follow the diagnosis chain in `references/pelican-node-connection-debug.md` (FQDN/scheme mismatch 90% of the time).
 
 - **Troubleshooting common issues** (403 dotfiles, plugin fatal errors, env permission, install hangs) — see `references/pelican-troubleshooting.md`.
+- **Nightly multi-service automated backup & migration strategy** (Pelican DB, 9Router, Hermes, Node API, Cloudflare, Systemd) — see `references/multi-service-backup-and-migration.md`.
 
 Full Wings deploy recipe in `references/pelican-wings-deploy.md`.

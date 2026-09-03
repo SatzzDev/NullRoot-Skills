@@ -206,7 +206,7 @@ If the panel was migrated to a new disk/path, the unit may still point to the ol
 # Check current ExecStart
 grep ExecStart /etc/systemd/system/pelican.service
 
-# Fix if pointing to old path
+# If it points to a wiped path (e.g. /srv/pelican/artisan), fix it:
 sudo sed -i 's|/old/path/artisan|/var/www/pelican/artisan|' /etc/systemd/system/pelican.service
 sudo systemctl daemon-reload
 sudo systemctl restart pelican.service
@@ -248,11 +248,39 @@ This blocks until a job finishes (prints `RUNNING` → `DONE` or failure), so yo
 sudo -u www-data env HOME=/tmp php /var/www/pelican/artisan tinker --execute="..."
 ```
 
+### Deploy rule (critical)
+After editing **any** job class, controller, or middleware in `app/Jobs`, `app/Http/Controllers`, or `app/Listeners`, the queue worker caches the old compiled class in memory. `php artisan queue:restart` only broadcasts a signal — it does **not** reload the PHP source if opcache is off (Pelican runs with opcache disabled in dev-style setups). **Always restart the systemd unit after code edits:**
+```bash
+sudo systemctl restart pelican.service
+```
+Without this, new code simply does not run — the old class definition keeps serving. This is NOT theoretical; it manifested as a failed test where `accent_color` stayed as the literal string `"color"` for 3+ test cycles despite the patch being installed. Verify by checking `webhooks.successful_at` is populated after dispatching a test event.
+
 ## Webhook Debugging (Discord type)
 
 Discord-type webhook failures follow a distinct chain — see [Webhook Debugging](references/webhook-debugging.md) for the full trace: NULL `payload` template → `json_decode` returns null → Discord 400 + `Column 'payload' cannot be null` SQL error. Key checks: query `webhooks.successful_at` (NULL = Discord rejected the POST) and confirm the config's `payload` template has `content` or `embeds`.
 
 For rich messages, the reference also covers **Components V2**: webhook URL needs `?with_components=true` appended, with `type: 17` containers holding `type: 10` content blocks (see the "Discord Components V2" section).
+
+## Discord Components V2 — Webhook Sending
+
+Pelican's `ProcessWebhook` (app/Jobs/ProcessWebhook.php) can send Discord Components V2 messages through the built-in webhook system — no discord.js needed. Key facts:
+
+- `ProcessWebhook` posts `WebhookConfiguration->endpoint` verbatim via `Http::post()`. Discord requires `?with_components=true` on the webhook URL to accept V2 payloads — append it in the endpoint DB column / admin form.
+- `flags: 32768` = `IS_COMPONENTS_V2` flag (required, exact value). Container = type 17, text display = type 10.
+- An `enrichData()` method (added to `ProcessWebhook`) flattens common context vars to top-level so templates work across event families: `{{ event }}`, `{{ color }}`, `{{ server_id }}`, `{{ server_name }}`, `{{ actor_username }}`, `{{ description }}`, `{{ ip }}`, `{{ timestamp }}`. Missing vars resolve to `''` — never leak the literal key name.
+- Per-event accent color via `eventColor()` map (injected as `{{ color }}`): green=power start/restart, red=power stop/kill/file delete, yellow=backup start/restore, purple=backup, blue=file/upload/pull, teal=database, orange=schedule/task, gray=subuser, blurple=default. Use `"accent_color": "{{ color }}"` in payload.
+- **Important Discord-side caveat**: this endpoint is a Discord **webhook** URL (`discord.com/api/webhooks/...`), NOT an interaction callback. Webhooks do NOT support components natively — the `?with_components=true` query param tells Discord to parse the body as a V2 payload. Without it, Discord treats the JSON as a regular webhook message and ignores `components`. This is a Discord API quirk, not a Pelican bug.
+- **Embeds guard**: `ProcessWebhook` clears bit 2 of `flags` when `embeds` present (`$data['flags'] &= ~(1 << 2)`). Don't mix `embeds` with a V2 payload — V2 messages reject embeds/content and the guard would corrupt the flag.
+- **Deploy rule**: after editing `ProcessWebhook.php`, `sudo systemctl restart pelican.service` — the queue worker caches the old class in memory and will not pick up new code otherwise.
+- Verify via `webhooks.successful_at` (NULL = Discord rejected) and actual Discord channel delivery.
+
+```bash
+# Apply + test:
+sudo -u www-data env HOME=/tmp php /var/www/pelican/artisan tinker
+# then: $w = WebhookConfiguration::find(ID); $w->payload = [...]; $w->endpoint .= '?with_components=true'; $w->save(); $w->run();
+```
+
+## UI Icons & Customization
 
 ## UI Icons & Customization
 
@@ -276,3 +304,4 @@ See [Icons & Customization](references/icons-customization.md) for the exact con
 - [Disk Migration Checklist](references/disk-migration.md) — what to update when the panel moves to a new disk/path
 - [Icons & Customization](references/icons-customization.md) — where server-console power-action icons live and how to swap them using the TablerIcon enum
 - [Webhook Debugging](references/webhook-debugging.md) — Discord webhook failure chain, fixes, and verification
+- [Components V2 Webhook Pattern](references/components-v2-webhook-pattern.md) — send Components V2 via Pelican webhooks: payload template, `{{ color }}`/`{{ server_id }}` vars, deploy rule
