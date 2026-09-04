@@ -177,6 +177,36 @@ from a separate shell.
   origin certificate path") and the CF REST API rejects the run-token for DNS edits. The user must
   create the CNAME in the Cloudflare dashboard. State this clearly; never claim to have set DNS.
 
+### ExtremeRouter (port 20128, OpenAI-compatible at `/v1`)
+
+ExtremeRouter is a 9Router fork with 304+ providers, maintained by @rsalmn. Migrated from 9Router.
+
+- Install globally: `npm install -g @rsalmn/extremerouter` → bin at `/home/saturia/.local/bin/extremerouter`.
+- Service file: `/etc/systemd/system/extremerouter.service`. Must use **absolute node binary** (node is not in default PATH):
+  ```ini
+  ExecStart=/home/saturia/.hermes/node/bin/node /home/saturia/.local/lib/node_modules/@rsalmn/extremerouter/app/server.js
+  Environment=PORT=20128
+  Environment=HOSTNAME=0.0.0.0
+  User=saturia
+  ```
+- Data directory: `~/.extremerouter/` (migrated from `~/.9router/`). Contains `auth/`, `db/`, `jwt-secret`, `machine-id`, `model-catalog.json`, `model-catalog-raw.json`.
+- **CLI auth token formula**: `SHA256(machine_id + "9r-cli-auth" + cli_secret)` → first 16 hex chars. `machine-id` at `~/.extremerouter/machine-id`, `cli-secret` at `~/.extremerouter/auth/cli-secret`. Required for `x-9r-cli-token` header on admin endpoints.
+- **Dashboard login**: default password `123456` (set via `extremerouter settings` or `POST /api/auth/reset-password` with `x-9r-cli-token` header). Auth is session-based browser cookies — NOT JWT Bearer tokens.
+- **Service is standalone**: no `--skip-update` needed on stable. Restart with `sudo systemctl restart extremerouter.service`.
+- **⚠️ Usage API aggregation lag**: `/api/usage/meta`, `/api/usage/chart`, `/api/usage/stats` return 500/"Failed to fetch overview data" if `usageDaily` table has no data for today. The aggregation job must run. Check `usageDaily` table — if `data` is null/empty for the current date, the aggregation worker is not running or failed to trigger. Fix: restart the service and manually trigger aggregation, or backfill `usageDaily` via SQL. See `references/extremerouter-deploy.md`.
+- **DB path**: `~/.extremerouter/db/data.sqlite` (SQLite, use python3's `sqlite3` module — `sqlite3` CLI is NOT installed).
+- Migration from 9Router: stop 9router service, clone ExtremeRouter repo to `~/.extremerouter`, copy `~/.9router/auth`, `~/.9router/db`, `~/.9router/jwt-secret`, `~/.9router/machine-id` → `~/.extremerouter/`. Verify JWT secret and machine-id match between versions.
+
+### 9Router → ExtremeRouter migration
+Full procedure in `references/extremerouter-deploy.md`. Key steps:
+1. `systemctl stop 9router && systemctl disable 9router`
+2. `npm install -g @rsalmn/extremerouter@latest`
+3. Create systemd unit for `extremerouter.service` (absolute node binary path)
+4. Migrate `~/.9router/` → `~/.extremerouter/` (non-destructive, copy not move)
+5. Reset admin password via CLI token
+6. Verify `/v1/models` and `/api/usage/meta` endpoints
+7. Update Cloudflare Tunnel ingress if hostname changed
+
 ### Jexactyl v3.1.0 (PHP/Laravel Pterodactyl fork, port 80 via tunnel)
 Full recipe in `references/jexactyl-deploy.md`. Key gotchas:
 - `php artisan key:generate` can't bootstrap when `APP_KEY` is empty — generate

@@ -294,7 +294,63 @@ Power actions in the **server console** (start / restart / stop / kill) are defi
 2. Pick the replacement case from `app/Enums/TablerIcon.php` (grep the enum for the icon you want, e.g. `grep -n "PlayerStop\|Square\|CircleStop" app/Enums/TablerIcon.php`).
 3. Replace the enum case. No migration or rebuild needed — Filament resolves the icon class at render time.
 
+### Console Button Border Radius
+
+To round the Start/Restart/Stop/Kill buttons, use `->extraAttributes(['class' => '!rounded-lg'])` on the `Button` definition in `Console.php`. See [Console Button Styling](references/console-button-styling.md) for full guide with Tailwind class options.
+
 See [Icons & Customization](references/icons-customization.md) for the exact console action block and enum grep patterns.
+
+### CSS Specificity Override Pitfall (Essentials Plugin Theme)
+
+When the **essentials** plugin is installed, its `plugins/essentials/resources/css/theme.css` (and the compiled `public/build/assets/theme-*.css`) contains a high-specificity selector that overrides Tailwind utility classes on the server card:
+
+```css
+:is(html.dark, .ld-preview--dark) [wire\:id]:has(>.fi-color)>.fi-color+div {
+    padding: 1rem 1.15rem; /* overrides p-5, p-3, etc. */
+}
+```
+
+This means editing `p-3` → `p-5` in Blade templates **has no effect** because the CSS selector wins by specificity. To override it:
+
+1. Append CSS rules with `!important` to `plugins/essentials/resources/css/theme.css`
+2. Target the same selector pattern: `:is(html.dark, .ld-preview--dark) [wire\:id]:has(>.fi-color)>.fi-color+div`
+3. Use `!important` on every property — the theme file's rules have (0,1,1) specificity and no `!important`, so they beat unmarked utilities
+
+After editing `theme.css`, you MUST rebuild: `cd /var/www/pelican && sudo -u www-data npm run build` — this regenerates `public/build/assets/theme-*.css` with the new rules. Skipping `npm run build` means the browser loads the old CSS.
+
+### Editing Blade/View Files
+
+When editing `.blade.php` files under `/var/www/pelican/resources/views/`:
+
+- **`patch` tool permission failures**: files are owned by `www-data:www-data`. The `patch` tool writes a temp file in the same directory — if the directory isn't group-writable, `patch` fails with "Permission denied". Fix: `sudo chgrp -R www-data /var/www/pelican/resources/views/ && sudo chmod -R g+rwX /var/www/pelican/resources/views/`. Alternatively, use `sudo tee` via terminal or `write_file` with group-writable directories.
+- After editing **any** view file, clear the view cache: `sudo -u www-data php artisan view:clear`
+- Then rebuild CSS: `cd /var/www/pelican && sudo -u www-data npm run build` (needed when CSS theme files change too)
+- Restart queue worker: `sudo systemctl restart pelican.service`
+
+### Server List Card Editing
+
+The server list card in Pelican Panel consists of two files:
+- **Main card**: `/var/www/pelican/resources/views/livewire/server-entry.blade.php` — header (name/status/power icon), description, and stats row (CPU/RAM/Disk progress bars + network)
+- **Progress bar partial**: `/var/www/pelican/resources/views/livewire/columns/progress-bar-column.blade.php` — individual bar styling (height, gap, label spacing)
+
+When customizing the card for a theme (e.g. samurai/bushido), edit both files together. The card's `p-3`/`p-5` controls vertical breathing room, `gap-X` controls spacing between stat bars, and `border-b` on the header row separates name from stats.
+
+**CSS theme override**: the compiled `public/build/assets/theme-*.css` file may contain `[wire\:id]:has(>.fi-color)>.fi-color+div { padding: 1rem 1.15rem }` which overrides all `p-*` utilities. Add override rules to `plugins/essentials/resources/css/theme.css` with `!important`, then run `npm run build`.
+
+### Verify Compiled Views Reflect Changes
+
+After `view:clear` + `cache:clear` + restart, verify the compiled output actually changed by checking `storage/framework/views/*.php` for the new class names/values. If the old values persist, the cache was not fully cleared — repeat `view:clear` and check again. The compiled PHP file is what actually runs, not the source `.blade.php`.
+
+### Deploy Rule (Critical)
+
+After editing **any** PHP source file (controllers, jobs, middleware, Livewire components) **or** Blade view files **or** CSS theme files:
+
+1. Clear view cache: `sudo -u www-data php artisan view:clear`
+2. Clear app cache: `sudo -u www-data php artisan cache:clear`
+3. Rebuild CSS assets: `cd /var/www/pelican && sudo -u www-data npm run build`
+4. Restart queue worker: `sudo systemctl restart pelican.service`
+
+Without steps 1–4, new Blade templates, PHP code, and CSS do not run — the old compiled version keeps serving. This applies to **view files and CSS too** — `view:clear` and `npm run build` are required, not just `php artisan optimize:clear`.
 
 ## References
 
@@ -304,4 +360,7 @@ See [Icons & Customization](references/icons-customization.md) for the exact con
 - [Disk Migration Checklist](references/disk-migration.md) — what to update when the panel moves to a new disk/path
 - [Icons & Customization](references/icons-customization.md) — where server-console power-action icons live and how to swap them using the TablerIcon enum
 - [Webhook Debugging](references/webhook-debugging.md) — Discord webhook failure chain, fixes, and verification
-- [Components V2 Webhook Pattern](references/components-v2-webhook-pattern.md) — send Components V2 via Pelican webhooks: payload template, `{{ color }}`/`{{ server_id }}` vars, deploy rule
+- [Components V2 Webhook Pattern](references/components-v2-webhook-pattern.md) — send Components V2 via Pelican webhooks: payload template, {{ color }}/{{ server_id }} vars, deploy rule
+- [Console Button Styling](references/console-button-styling.md) — border-radius and Tailwind styling for console action buttons
+- [File Permissions](references/permission-fix.md) — chgrp/chmod patterns for editing panel files including Blade views
+- [Essentials Theme Override](references/essentials-theme-override.md) — CSS specificity issue with [wire\:id]:has(>.fi-color) selector overriding Tailwind utilities, fix via theme.css + !important

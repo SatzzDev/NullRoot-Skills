@@ -53,6 +53,15 @@ separate `users` table — the admin is the owner row inside the `settings` blob
 
 4. Log in to the 9router dashboard with the new password.
 
+## ExtremeRouter migration note
+When migrating from 9Router to ExtremeRouter, the admin password mechanism changes.
+ExtremeRouter uses session-based browser cookies (NOT bcrypt DB hash) and the default
+password is `123456`. To set the password after migration:
+- Use `extremerouter settings` CLI, or
+- `POST /api/auth/reset-password` with `x-9r-cli-token` header (formula: `SHA256(machine_id + "9r-cli-auth" + cli_secret)` → 16 hex chars)
+
+See `references/extremerouter-deploy.md` for the full migration procedure.
+
 ## Gotchas
 - Don't edit the DB while the service holds the WAL — checkpoint first.
   If you hit a locking/write error, stop the service (`sudo systemctl stop 9router`),

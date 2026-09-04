@@ -68,3 +68,16 @@ If artisan commands fail with log permission errors:
 ```bash
 sudo chown www-data:www-data /srv/pelican/storage/logs/laravel.log
 ```
+
+## Editing Blade/View Files
+
+When editing `.blade.php` files under `/var/www/pelican/resources/views/` via `patch` tool:
+
+- `patch` writes a temp file in the **same directory** as the target file. The directory must be group-writable by `www-data`.
+- If `patch` returns "Permission denied" even though the file itself is writable, fix the **directory ownership**:
+  ```bash
+  sudo chgrp www-data /var/www/pelican/resources/views/<subdir>/
+  sudo chmod g+rwX /var/www/pelican/resources/views/<subdir>/
+  ```
+- Alternatively, fix recursively: `sudo chgrp -R www-data /var/www/pelican/resources/views/ && sudo chmod -R g+rwX /var/www/pelican/resources/views/`
+- After editing any view file, clear view cache: `sudo -u www-data php artisan view:clear`
