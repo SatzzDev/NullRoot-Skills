@@ -87,10 +87,63 @@ When deploying a Pterodactyl Wings node behind a Cloudflare tunnel:
 
 ### api.saturia.codes (port 4000, `api.saturia.codes`)
 Self-hosted multi-endpoint API (yt-dlp convert, TikTok via TikWM, 9Router AI proxy, edge-tts,
-YouTube search, headless screenshot). Node-only, systemd **user** unit. Durable quirks + the
-edge-tts PATH fix in `references/api-saturia-codes.md`. **The agent cannot restart this service
-from inside its own session** — ask the user to run `systemctl --user restart api-saturia-codes`
-from a separate shell.
+YouTube search, headless screenshot). Node-only, systemd **system** unit (NOT user unit). Durable quirks + the
+edge-tts PATH fix in `references/api-saturia-codes.md`.
+
+**Key deployment gotchas**:
+- **Temp dir permission**: server.js tries to create `/mnt/api-tmp` on startup. If `/mnt` is root-owned, mkdir fails with `EACCES: permission denied`. Fix once: `sudo mkdir -p /mnt/api-tmp && sudo chown saturia:saturia /mnt/api-tmp`.
+- **Port bind race on restart**: if `RestartSec` is too short (<10s), systemd starts the new process before the old one fully releases port 4000 → `EADDRINUSE` crash loop. Use `RestartSec=10`, `KillMode=mixed`, `TimeoutStopSec=10` to ensure clean shutdown.
+- **Orphan processes outside systemd**: if the service shows `inactive (dead)` but `curl localhost:4000` works, an orphan node process is running (started manually or from a failed systemd start). Find with `ps aux | grep 'node server.js'` and kill before `systemctl start`.
+- **Redis dependency**: API crashes on start if Redis is not running (`ECONNREFUSED` to `127.0.0.1:6379`). systemd unit MUST have `After=redis-server.service` and `Wants=redis-server.service`. Verify Redis: `systemctl is-active redis-server`.
+- **COOKIES_FALLBACK=1**: PoToken provider path (`/home/saturia/bgutil-ytdlp-pot-provider/server`) was removed. Run with `Environment=COOKIES_FALLBACK=1` to bypass PoToken (yt-dlp will use cookies.txt fallback).
+- **Azure floating IP not bindable by Docker**: The VPS public IP (`5.62.139.35`) is an Azure floating/NAT IP — it does NOT exist on any local interface (`ip addr show` shows only `172.x` private + `127.0.0.1`). Docker CANNOT `bind` to this IP → `failed to bind host port: cannot assign requested address`. **Fix**: set allocation IP to `0.0.0.0` (bind all interfaces) in the Pelican Panel DB (`UPDATE allocations SET ip='0.0.0.0' WHERE id=N`). Never set Docker allocation to a public IP that isn't local to the interface.
+- **Systemd unit must be system-level, not user-level**: api-saturia.service lives at `/etc/systemd/system/api-saturia.service` (NOT `/home/saturia/.config/systemd/user/`). A user-level unit won't be manageable via `sudo systemctl` and won't survive reconfig. The unit must use `User=saturia` + absolute node binary path.
+- **Stale systemd unit detection**: if `systemctl status api-saturia` says `inactive (dead)` but `curl localhost:4000` returns 200, an orphan process from a crashed systemd start is running outside systemd management. Kill it (`pkill -9 -f 'node server.js'`), then `systemctl start api-saturia` — the systemd unit will claim the port cleanly.
+- **Service file write permission**: `/etc/systemd/system/` is a sensitive system path — cannot be written directly via write_file tool. Write to `/tmp/<name>.service` then `sudo mv /tmp/<name>.service /etc/systemd/system/<name>.service`.
+
+**Correct systemd unit** (`/etc/systemd/system/api-saturia.service`):
+```ini
+[Unit]
+Description=api.saturia.codes Express API
+After=network.target redis-server.service
+Wants=redis-server.service
+
+[Service]
+Type=simple
+User=saturia
+WorkingDirectory=/home/saturia/api-saturia-codes
+Environment=COOKIES_FALLBACK=1
+Environment=NODE_ENV=production
+ExecStart=/home/saturia/.hermes/node/bin/node server.js
+Restart=always
+RestartSec=10
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=10
+
+[Install]
+WantedBy=multi-user.target
+```
+
+**Verify after deploy**:
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now api-saturia
+sleep 5
+curl -s http://localhost:4000/ | head -3  # expect HTML <!DOCTYPE html>
+systemctl status api-saturia --no-pager  # active (running)
+curl -s https://api.saturia.codes/ | head -3  # via tunnel
+```
+
+**Feature suggestions for api.saturia.codes** (from audit):
+- **Usage/analytics dashboard** — track request counts, token usage, cost per provider/model over time (9Router already exposes `/api/usage/meta`, `/api/usage/chart`, `/api/usage/stats` — proxy these or build a consolidated view).
+- **Provider status page** — real-time health of each AI provider (9Router catalog shows which are active vs. failing).
+- **Request log / audit trail** — show recent requests with model, token counts, timestamps, cost — useful for monitoring and billing.
+- **Error rate monitoring** — track 4xx/5xx responses per provider, flag degraded providers automatically.
+- **Rate limit dashboard** — display current rate limits per provider and per model.
+- **Cost alerting** — notify when daily/monthly spend crosses a threshold.
+- **Model comparison tool** — send the same prompt to multiple providers, compare response quality/cost/latency.
+- **Cache hit rate** — show cached vs. fresh token counts (9Router already reports cached_tokens).
 
 ### 9Router (port 20128, OpenAI-compatible at `/v1`)
 - `npm install -g 9router` → bin `/home/saturia/.local/bin/9router`.

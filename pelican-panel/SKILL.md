@@ -323,6 +323,7 @@ After editing `theme.css`, you MUST rebuild: `cd /var/www/pelican && sudo -u www
 When editing `.blade.php` files under `/var/www/pelican/resources/views/`:
 
 - **`patch` tool permission failures**: files are owned by `www-data:www-data`. The `patch` tool writes a temp file in the same directory — if the directory isn't group-writable, `patch` fails with "Permission denied". Fix: `sudo chgrp -R www-data /var/www/pelican/resources/views/ && sudo chmod -R g+rwX /var/www/pelican/resources/views/`. Alternatively, use `sudo tee` via terminal or `write_file` with group-writable directories.
+- **api-saturia-codes temp dir (`/mnt/api-tmp`)**: If running the API server and seeing `EACCES: permission denied, mkdir '/mnt/api-tmp'` in the crash log, the `/mnt` data disk has not had the temp dir created with correct ownership. Fix once: `sudo mkdir -p /mnt/api-tmp && sudo chown saturia:saturia /mnt/api-tmp`. `/mnt` is the persistent data disk (`/dev/sdb1` ext4), not the ephemeral root partition.
 - After editing **any** view file, clear the view cache: `sudo -u www-data php artisan view:clear`
 - Then rebuild CSS: `cd /var/www/pelican && sudo -u www-data npm run build` (needed when CSS theme files change too)
 - Restart queue worker: `sudo systemctl restart pelican.service`
@@ -364,3 +365,6 @@ Without steps 1–4, new Blade templates, PHP code, and CSS do not run — the o
 - [Console Button Styling](references/console-button-styling.md) — border-radius and Tailwind styling for console action buttons
 - [File Permissions](references/permission-fix.md) — chgrp/chmod patterns for editing panel files including Blade views
 - [Essentials Theme Override](references/essentials-theme-override.md) — CSS specificity issue with [wire\:id]:has(>.fi-color) selector overriding Tailwind utilities, fix via theme.css + !important
+- [Azure NAT + Wings Allocation](references/azure-nat-wings-allocation.md) — Docker bind failures on Azure/NAT VPS, use 0.0.0.0 allocations when public IP is not on interface
+- [Wings Config Recovery](references/wings-config-recovery.md) — restore /etc/pelican/config.yml after accidental deletion, regenerate via panel
+- [Subdomains Plugin Setup](references/subdomains-plugin-setup.md) — Cloudflare DNS integration, permissions, button disabled troubleshooting, SRV records
