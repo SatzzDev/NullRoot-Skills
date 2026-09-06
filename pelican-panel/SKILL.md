@@ -353,6 +353,9 @@ After editing **any** PHP source file (controllers, jobs, middleware, Livewire c
 
 Without steps 1–4, new Blade templates, PHP code, and CSS do not run — the old compiled version keeps serving. This applies to **view files and CSS too** — `view:clear` and `npm run build` are required, not just `php artisan optimize:clear`.
 
+### ⚠️ Execute immediately, don't just describe
+When the user asks to edit a file (e.g. "ubah CSS ini", "edit blade", "tambah spacing"), the agent must **actually run the edit tool** (patch/write_file) and report the result — NOT just describe what it would do or what the fix should be. If the file path is uncertain, search for it first (`search_files`), then edit. The user expects concrete evidence of the edit: show the modified file content or the exact command output. If a permission error blocks the edit, fix the ownership (`sudo chgrp www-data`) and retry — do not report the error and stop.
+
 ## References
 
 - [Permission Fix Pattern](references/permission-fix.md) — detailed chgrp/chmod commands and troubleshooting
@@ -368,3 +371,4 @@ Without steps 1–4, new Blade templates, PHP code, and CSS do not run — the o
 - [Azure NAT + Wings Allocation](references/azure-nat-wings-allocation.md) — Docker bind failures on Azure/NAT VPS, use 0.0.0.0 allocations when public IP is not on interface
 - [Wings Config Recovery](references/wings-config-recovery.md) — restore /etc/pelican/config.yml after accidental deletion, regenerate via panel
 - [Subdomains Plugin Setup](references/subdomains-plugin-setup.md) — Cloudflare DNS integration, permissions, button disabled troubleshooting, SRV records
+- [JMusicBot YouTube Lavalink Fix](references/jmusicbot-yt-fix.md) — fixing yts.version AllClientsFailedException by patching the bundled Lavalink plugin in the JMusicBot Docker container

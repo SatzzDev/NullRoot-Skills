@@ -146,6 +146,8 @@ curl -s https://api.saturia.codes/ | head -3  # via tunnel
 - **Cache hit rate** — show cached vs. fresh token counts (9Router already reports cached_tokens).
 
 ### 9Router (port 20128, OpenAI-compatible at `/v1`)
+**Status: disabled on this VPS** (superseded by OmniRoute — see its section). The quirks below remain the reference if it is re-enabled or used elsewhere.
+- **Crash-loop root cause pattern: a combo whose `models` list contains its own name self-references → infinite routing recursion → JS heap OOM (`FATAL ERROR: ... heap out of memory`, then `code=dumped, status=6/ABRT`) → systemd restart → caller retries → loop.** When a service under request load crash-loops, don't iterate on restart/OOM policy — grep `journalctl` for the failing input, read the app's config/DB (combos table), and delete or fix the self-referencing entry. Fresh-install escape hatch (with user consent only): stop the service, back up, delete `~/.9router/` — the app re-creates a clean data dir on next start.
 - `npm install -g 9router` → bin `/home/saturia/.local/bin/9router`.
 - **DO NOT run `cli.js` under systemd** — it's an interactive launcher that spawns the server then
   exits 0, so systemd kills the child. Spawn the bundled Next.js server directly:
@@ -154,6 +156,7 @@ curl -s https://api.saturia.codes/ | head -3  # via tunnel
   Environment=PORT=20128
   Environment=HOSTNAME=0.0.0.0
   ```
+- **npm update workflow**: stop → kill lingering → `npm i -g 9router@latest --prefer-online` → verify `custom-server.js` path didn't shift → `daemon-reload` + restart. See [9Router Internals](references/9router-internals.md#npm-update-workflow).
 - **Web password / admin reset**: the admin password is a **bcrypt hash (10 rounds, `$2b$…`)**
   stored in the `settings` table, `data` JSON, `.password` field. There is **NO `9router
   --reset-password` command and NO live default password** once a hash is set — the "default
@@ -167,7 +170,11 @@ curl -s https://api.saturia.codes/ | head -3  # via tunnel
   9Router gateway, deploy the non-streaming proxy in `references/n8n-9router-gateway.md`
   (listens on **5680**; n8n credential Base URL → `http://127.0.0.1:5680/v1`).
 
+### OmniRoute (npm-global install, port 20129, OpenAI-compatible at `/v1`)
+AI gateway with 352+ providers, auto-fallback and compression — replaced 9Router on this VPS. npm-global fast path, tested systemd unit, health/401 verification, and CLI auth in `references/omniroute-deploy.md`. **Always deploy with `--port 20129`**: the registered tunnel hostname `omniroute.saturia.codes` targets `localhost:20129`, and OmniRoute's default port 20128 collides with (now-disabled) 9Router.
+
 ## Pitfalls
+- **Before starting any service, check its target port with `ss -tlnp | grep <port>`.** An occupied port makes the app exit with EADDRINUSE, and many apps (9Router, OmniRoute `serve`) trap it in their own restart loop or crash-loop under systemd — the log spam looks like an app bug but the fix is just freeing/choosing the port (or stopping the other service). Distinct services must get distinct fixed ports, decided UP FRONT.
 - **Check disk space before installing large monorepos.** The VPS has a 29GB root partition that can
   fill quickly. Large Node.js projects like OmniRoute (3GB+ for `node_modules` alone, plus build
   artifacts) will fail mid-install with `ENOSPC: no space left on device`. Before `npm install` on
@@ -229,6 +236,22 @@ curl -s https://api.saturia.codes/ | head -3  # via tunnel
   token, and `cert.pem` is absent. So `cloudflared tunnel route dns` fails ("Cannot determine default
   origin certificate path") and the CF REST API rejects the run-token for DNS edits. The user must
   create the CNAME in the Cloudflare dashboard. State this clearly; never claim to have set DNS.
+
+### JMusicBot (Discord music bot, Docker container)
+
+JMusicBot runs as a Docker container managed by Pelican Panel / Wings.
+
+**Container**: `c5a8486c7a10` (image: `ghcr.io/pterodactyl/yolks:java_25`), Pelican name `5f5fdde2-bd18-4d87-905b-acdb3183f30c`.
+
+**Key paths**: `/home/container/JMusicBot.jar`, `/home/container/config.txt`, `/home/container/youtubetoken.txt`.
+
+**YouTube Lavalink fix**: If the bot logs `AllClientsFailedException: (yts.version: 1.18.1)`, the bundled Lavalink YouTube plugin is outdated and YouTube has permanently blocked the TVHTML5 clients. Fix by patching the JAR:
+
+1. Download `JMusicBot-0.4.3.jar` and `youtube-plugin-1.18.2.jar` from GitHub
+2. Replace `dev/lavalink/youtube/` classes in the JAR using Python `zipfile`
+3. Copy patched JAR to container, remove `youtubetoken.txt`, restart
+
+See skill `jmusicbot-yt-fix` for the full recipe.
 
 ### ExtremeRouter (port 20128, OpenAI-compatible at `/v1`)
 

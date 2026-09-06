@@ -1,4 +1,4 @@
-# 9Router internals (v0.5.55, verified by reading src on GitHub)
+# 9Router internals (v0.5.69, verified)
 
 ## Run modes
 - `cli.js` = interactive launcher. Spawns `app/custom-server.js` (Next.js) then shows a TUI menu and
@@ -7,6 +7,31 @@
   /home/saturia/.local/lib/node_modules/9router/app/custom-server.js` with `PORT`+`HOSTNAME` env.
   It reads `PORT`/`HOSTNAME` and serves Next.js 16 on 0.0.0.0:20128. Uses `node:sqlite` fallback
   (better-sqlite3 optional) → DB at `~/.9router/db/data.sqlite`.
+
+## npm update workflow
+Update 9Router globally and restart cleanly:
+```bash
+# stop service first
+sudo systemctl stop 9router
+# kill any lingering process
+pgrep -f 'next-server' | xargs -r sudo kill -9 2>/dev/null
+sleep 2
+# update
+npm i -g 9router@latest --prefer-online
+# verify binary version
+9router --version
+# restart (daemon-reload NOT needed if ExecStart path unchanged, but safe to run)
+sudo systemctl daemon-reload
+sudo systemctl enable --now 9router
+# verify
+systemctl is-active 9router
+ss -tlnp | grep 20128
+```
+**⚠️ After `npm i -g`, the `custom-server.js` path may shift** if the package restructures between versions. Verify with:
+```bash
+ls /home/saturia/.local/lib/node_modules/9router/app/custom-server.js
+```
+If it moved, update `/etc/systemd/system/9router.service` `ExecStart=` accordingly, then `daemon-reload` + `restart`.
 
 ## Web password
 - Stored in `settings` table (`id=1`), column `data` is JSON with a `password` field holding a

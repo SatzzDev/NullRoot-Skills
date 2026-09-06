@@ -1,6 +1,34 @@
 # OmniRoute Deployment Notes
 
-OmniRoute (https://github.com/diegosouzapw/OmniRoute) is a unified AI gateway/router supporting 353 providers with auto-fallback. Large monorepo footprint.
+OmniRoute (https://github.com/diegosouzapw/OmniRoute) is a unified AI gateway/router supporting 353 providers with auto-fallback. Large monorepo footprint. Two install paths: the npm-global fast path below (recommended — ships a production build, deploys in ~1 min) and the source-clone procedure further down (slow, OOM-prone build; kept as alternative).
+
+## Fast path: npm global install (recommended, current deployment)
+
+```bash
+# native deps need install-scripts allowed (npm blocks package scripts globally on this box)
+npm i -g omniroute@latest --prefer-online --allow-scripts=omniroute,keytar,onnxruntime-node,tls-client-node,sharp,@parcel/watcher,@swc/core,protobufjs,koffi,esbuild
+omniroute --version
+```
+
+- Data dir (auto-created on first `serve`): `~/.omniroute/` — storage.sqlite (WAL), `.env` with an auto-generated STORAGE_ENCRYPTION_KEY, logs/, db_backups/.
+- **Default port is 20128 — collides with 9Router on this VPS. Always deploy with `--port 20129`**; the registered tunnel hostname `omniroute.saturia.codes` already targets `localhost:20129`.
+- systemd unit (write to /tmp first, then `sudo mv /tmp/omniroute.service /etc/systemd/system/`):
+
+```ini
+[Service]
+User=saturia
+WorkingDirectory=/home/saturia
+Environment=PATH=/home/saturia/.hermes/node/bin:/home/saturia/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=OMNIROUTE_SERVER_HOST=127.0.0.1
+ExecStart=/home/saturia/.local/bin/omniroute serve --port 20129 --no-open --no-tray --no-recovery
+Restart=on-failure
+RestartSec=5
+```
+
+Bind loopback (`OMNIROUTE_SERVER_HOST=127.0.0.1`) — the tunnel terminates TLS in front. `--no-recovery` disables the app's built-in crash-supervisor so systemd solely owns restart policy; without it `serve` runs its own "Restarting in 1s (1/2)" supervisor loop on top of systemd.
+- **EADDRINUSE signature**: `serve` prints "Server exited (code=1). Restarting in 1s..." with `listen EADDRINUSE` inside the crash log. Free the port (`ss -tlnp | grep <port>`) — do not debug the app itself.
+- Verify: `curl -s http://127.0.0.1:20129/api/health` → `{"status":"ok"}`; `curl -I /` → 307 to `/dashboard`; `/v1/models` → 401 until an API key exists (normal on fresh install).
+- First-run: dashboard at `/dashboard` (set password, manage API keys + provider credentials). CLI subcommands talk to the server over HTTP — after an API key is required, pass `--api-key` or export `OMNIROUTE_API_KEY`, else every CLI call returns `Error: 401`.
 
 ## Requirements
 
