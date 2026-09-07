@@ -32,7 +32,19 @@ Test multiple `player_client` values (web, tv, android, ios, web_safari).
 If ALL fail, it's not the client — it's auth/IP. `?si=...` share params in
 the URL do NOT cause the challenge (tested) — don't blame URL format.
 
-## Cookies vs Proxy decision
+## Modern yt-dlp Execution Requirements
+- **JavaScript Runtime**: Modern yt-dlp requires a JS runtime to solve n-sig and signature challenges. Always pass `--js-runtimes node:/home/saturia/.hermes/node/bin/node` (or `node`/`deno`). Missing JS runtime leads to `Sign in to confirm you're not a bot` or missing stream formats.
+- **Deprecated flags**: Do NOT pass `--no-call-home` (deprecated in newer yt-dlp versions).
+- **Socket timeouts**: Use `--socket-timeout 25 --retries 3`.
+- **Parallel fragment downloading**: Pass `--concurrent-fragments 5 --buffer-size 16M` to saturate available bandwidth for multi-part DASH streams.
+- **Direct AAC audio extract (No Re-encoding)**: Use `-f "ba[ext=m4a]/ba/b" -x --audio-format m4a`. Plain `ba/b` often fetches Opus (WebM), forcing FFmpeg into an expensive 10-15s CPU re-encode to m4a. Prioritizing native YouTube AAC stream (itag 140) demuxes in ~0.1s with zero transcode loss.
+
+## Performance & Caching Patterns
+- **Concurrent metadata & download**: Run oEmbed metadata (`https://www.youtube.com/oembed`) concurrently with `runYtDlp` via `Promise.all([metaPromise, runPromise])` rather than serial awaits.
+- **Prefix disk caching**: Check the temporary directory (`/mnt/api-tmp`) for existing non-expired files matching `${format}_${vid}_` (`Date.now() - st.mtimeMs < EXPIRY_MS`) to return repeat downloads instantly (<100ms) with `cached: true`.
+- **In-flight request deduplication**: Track active downloads via a Map key `${format}:${vid}` so duplicate simultaneous requests share the same promise.
+
+## Cookies Proxy decision
 - **Cookies**: expire/rotate frequently (YouTube invalidates sessions),
   need re-export, and require ALL critical cookies. High maintenance.
 - **Residential / ISP / mobile proxy**: YouTube blocks cheap datacenter
@@ -64,10 +76,11 @@ Key points:
 ## This user's instance (api.saturia.codes)
 - yt-dlp ytmp3/ytmp4, VPS `saturia`, `server.js` @
   `/home/saturia/api-saturia-codes`, port 4000, Cloudflare-fronted.
-- systemd user unit `api-saturia-codes.service`.
+- systemd system unit `/etc/systemd/system/api-saturia.service`.
+- Temp storage: `/mnt/api-tmp` (separate 16GB ext4 disk partition).
 - **Endpoint gotcha**: routes are `/ytmp3?url=` and `/ytmp4?url=`
   (NO `/api/` prefix — that 404s).
-- Restart: `systemctl --user restart api-saturia-codes`.
+- Restart: `sudo systemctl daemon-reload && sudo systemctl restart api-saturia`.
 - Validate: `curl "https://api.saturia.codes/ytmp3?url=<youtube_url>"`
   → expect 200 + `{"success":true,...}`.
 

@@ -15,6 +15,29 @@ metadata:
 Verify that a self-hosted web page actually RENDERS the way its code says —
 before claiming a fix, and the moment a user reports a visual bug.
 
+## Hard-won lessons
+
+- Pull class names from the live DOM or source file BEFORE writing
+  measurement JS. Sibling pages rarely share naming — probing `.ep-card`
+  when the real class is `.ep-item` returns 0 and wastes a round trip.
+  When unsure, sample `[...document.querySelectorAll('[class]')].map(e => e.className)`
+  or grep the served HTML first.
+- In the overflow probe, children poking past the viewport inside an
+  intentional scroll container (tab strips, filter pills) are EXPECTED,
+  not bugs. The verdict line is `document.documentElement.scrollWidth <=
+  clientWidth` — only flag elements that stretch the body, and skip
+  elements whose nearest scrollable ancestor clips them.
+- Emulate a phone with CDP `Emulation.setDeviceMetricsOverride`
+  (width=375, mobile=true, deviceScaleFactor=2), then measure rects.
+  Closer to a real phone than window-size alone.
+- Headless screenshots on a bare VPS:
+  `chromium-browser --headless=new --disable-gpu --no-sandbox --window-size=375,900 --screenshot=FILE URL`.
+  GCM `PHONE_REGISTRATION_ERROR` / `DEPRECATED_ENDPOINT` lines on stderr
+  are harmless noise — success is the "bytes written to file" line.
+- Report pixel deltas as evidence ("navGap 0px → 75px"), never adjectives
+  ("now spacious"). Numbers are what settle the next round of "still not
+  right".
+
 ## When to Use
 
 - User reports a layout bug ("too close", "nempel", "overlapping", "still
