@@ -173,6 +173,89 @@ curl -s https://api.saturia.codes/ | head -3  # via tunnel
 ### OmniRoute (npm-global install, port 20129, OpenAI-compatible at `/v1`)
 AI gateway with 352+ providers, auto-fallback and compression — replaced 9Router on this VPS. npm-global fast path, tested systemd unit, health/401 verification, and CLI auth in `references/omniroute-deploy.md`. **Always deploy with `--port 20129`**: the registered tunnel hostname `omniroute.saturia.codes` targets `localhost:20129`, and OmniRoute's default port 20128 collides with (now-disabled) 9Router.
 
+## VPS-to-VPS migration (deploying existing service to a new VPS)
+
+When migrating an existing service (e.g. api.saturia.codes) from one VPS to another:
+
+1. **Provision new VPS** — set root password, verify SSH access. Do NOT create DNS records yet (wait until tunnel is verified).
+2. **Install runtime dependencies** on new VPS:
+   ```bash
+   curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+   sudo apt update && sudo apt install -y nodejs git curl build-essential python3
+   node --version  # verify v22.x
+   ```
+3. **Copy service code + dependencies**. Check WHERE the source lives first:
+   - If on old VPS: `ssh old-vps "ls -la /home/saturia/<service>"` → rsync from old VPS to new VPS
+   - If on local Hermes: `ls -la /home/saturia/<service>` → rsync from Hermes to new VPS
+   
+   **From Hermes (or old VPS) to new VPS**:
+   ```bash
+   # Adjust source path based on where service actually lives
+   rsync -az --exclude=node_modules \
+     -e "ssh -o StrictHostKeyChecking=no" \
+     /home/saturia/<service-name>/ \
+     root@<new-vps-hostname>:/root/<service-name>/
+   ```
+4. **Install dependencies on new VPS**:
+   ```bash
+   ssh root@<new-vps-hostname> "cd /root/<service-name> && npm install"
+   ```
+5. **Create systemd service** on new VPS (template from existing service file, adjust paths/ports):
+   ```bash
+   # Write service file to /tmp first, then move with sudo
+   scp /etc/systemd/system/<service>.service root@<new-vps-hostname>:/tmp/
+   ssh root@<new-vps-hostname> "sudo mv /tmp/<service>.service /etc/systemd/system/ && \
+     sudo systemctl daemon-reload && sudo systemctl enable --now <service>"
+   ```
+6. **Install and configure Cloudflare Tunnel on new VPS**:
+   ```bash
+   # Copy tunnel credentials from old VPS
+   scp root@<old-vps>:/etc/cloudflared/credentials.json /tmp/
+   scp root@<old-vps>:/etc/cloudflared/config.yml /tmp/
+   
+   # Install cloudflared on new VPS
+   ssh root@<new-vps> "curl -sL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /usr/local/bin/cloudflared && chmod +x /usr/local/bin/cloudflared"
+   
+   # Copy credentials and config
+   scp /tmp/credentials.json root@<new-vps>:/etc/cloudflared/
+   scp /tmp/config.yml root@<new-vps>:/etc/cloudflared/
+   
+   # Create systemd service (Type=exec, --config BEFORE tunnel run)
+   # See references/cloudflare-tunnel-locally-managed.md for full unit template
+   ssh root@<new-vps> "systemctl daemon-reload && systemctl enable --now cloudflared"
+   ```
+7. **Update DNS record type for CF tunnel routing**:
+   - **Delete old A record** (if exists): an A record pointing to VPS IP (even a CF IP) will NOT route through tunnel
+   - **Create CNAME** → `<tunnel-id>.cfargotunnel.com` with `proxied=true` (orange cloud)
+   - Example via CF API:
+   ```bash
+   # Delete A record first
+   curl -X DELETE "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records/$RECORD_ID" \
+     -H "Authorization: Bearer $CF_TOKEN"
+   
+   # Create CNAME
+   curl -X POST "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records" \
+     -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: application/json" \
+     -d '{"type":"CNAME","name":"api.saturia.codes","content":"<tunnel-id>.cfargotunnel.com","proxied":true}'
+   ```
+   - Verify DNS propagation: `dig +short api.saturia.codes` → CF IPs (104.21.x.x, 172.67.x.x)
+   - Verify tunnel routing: `curl -I https://api.saturia.codes` → HTTP 200
+
+**Key pitfalls**:
+- **Confirm source location before rsync** — the service code might live on the old VPS, on the local Hermes machine, or in a git remote. Check `ls -la /home/saturia/<service>` locally AND `ssh old-vps "ls -la /home/saturia/<service>"` to find the actual working source. For api.saturia.codes specifically, the source is on Hermes (NOT a git repo), so rsync directly from Hermes to the new VPS.
+- **Install runtime BEFORE rsync** — missing Node.js/Python on target breaks npm install.
+- **Exclude node_modules from rsync** — let npm install rebuild them on target (avoids binary incompatibilities). Do NOT exclude `.git` unless you've confirmed it exists — many self-hosted services (api.saturia.codes) are NOT git repos.
+- **Verify systemd unit paths** — adjust `WorkingDirectory`, `ExecStart`, and any hardcoded paths to match new VPS layout.
+- **Check port availability** — `ss -tlnp | grep <port>` on new VPS before starting service.
+- **DNS record type blocks tunnel routing** — an A record (even pointing to a CF IP like 104.21.x.x) will NOT route through the tunnel. The hostname resolves but returns timeout/522/1033. Delete the A record first, then create a CNAME → `<tunnel-id>.cfargotunnel.com` with proxied=true. Verify with `curl -I https://<hostname>` from the VPS itself (not just dig) — if dig shows CF IPs but curl times out, it's a stale A record or wrong record type.
+- **CF Tunnel hostname registration for remotely-managed tunnels** — adding DNS CNAME alone is NOT enough when the tunnel is remotely-managed (config pushed from CF API). The hostname must be added via CF Zero Trust dashboard (Networks → Tunnels → Public Hostnames → Add) OR via `cloudflared tunnel route dns` with a proper API token. Local `/etc/cloudflared/config.yml` edits are validated but NOT pushed to the edge. See `references/cloudflare-tunnel-public-hostname.md` and `references/cloudflare-tunnel-locally-managed.md`.
+
+## Delivery standard
+Execute every task to completion and report the real outcome. Do not hand the user a script to run,
+a command to paste, or a partially-done result. "Terima bersih" — deliver done, not instructions.
+If a blocker (missing credential, wrong token scope, permission error) interrupts the work, name it
+concretely and state what is needed to unblock, then stop. Never substitute fabricated or plausible output.
+
 ## Pitfalls
 - **Before starting any service, check its target port with `ss -tlnp | grep <port>`.** An occupied port makes the app exit with EADDRINUSE, and many apps (9Router, OmniRoute `serve`) trap it in their own restart loop or crash-loop under systemd — the log spam looks like an app bug but the fix is just freeing/choosing the port (or stopping the other service). Distinct services must get distinct fixed ports, decided UP FRONT.
 - **Check disk space before installing large monorepos.** The VPS has a 29GB root partition that can
@@ -236,6 +319,7 @@ AI gateway with 352+ providers, auto-fallback and compression — replaced 9Rout
   token, and `cert.pem` is absent. So `cloudflared tunnel route dns` fails ("Cannot determine default
   origin certificate path") and the CF REST API rejects the run-token for DNS edits. The user must
   create the CNAME in the Cloudflare dashboard. State this clearly; never claim to have set DNS.
+- **Cloudflared service inactive (dead) but no obvious errors → check for "permission denied" reading credentials.** When `systemctl status cloudflared` shows `inactive (dead)` and the last journal entry is hours old (service exited cleanly, no crash dump), but attempting to run cloudflared manually returns `couldn't read tunnel credentials from /etc/cloudflared/credentials.json: permission denied`, the root cause is file ownership/perms — the systemd unit's User= directive (or lack thereof, defaulting to root) conflicts with the actual credentials file perms. The service exits immediately on start, systemd logs show `Stopped cloudflared.service` (clean exit, not failure), and there's no active process. Fix: align the service User= with the credentials ownership (run as root if creds are root:root 0600, OR `chmod 644` the credentials if running as non-root), then `systemctl restart cloudflared`. Do NOT attempt sudo password injection or interactive systemctl commands — fix the underlying perms/ownership mismatch.
 
 ### JMusicBot (Discord music bot, Docker container)
 
