@@ -380,6 +380,44 @@ Full recipe in `references/jexactyl-deploy.md`. Key gotchas:
   ("Access denied"). Keep `localhost`.
 - Queue worker is mandatory (`jexactyl-queue.service`, `www-data`, `queue:work`) or emails/backups stall.
 
+### Calagopus Panel (Docker AIO, port 8000)
+
+Calagopus is a game server panel (Pterodactyl/Pelican alternative). The **All-in-One (AIO)** Docker image bundles the Panel and Wings node daemon in a single container. Full deployment recipe in `references/calagopus-aio-deploy.md`.
+
+**Key deployment steps**:
+1. Install Docker: `curl -sSL https://get.docker.com/ | CHANNEL=stable bash`
+2. Download compose file: `curl -o compose.yml https://raw.githubusercontent.com/calagopus/panel/refs/heads/main/compose.aio.yml`
+3. **MANDATORY pre-requisite**: create `wings-config.yml` file BEFORE first start: `echo 'app_name: Calagopus' > wings-config.yml` (if this file doesn't exist, Docker creates it as a directory and the container fails)
+4. Generate encryption key: `RANDOM_STRING=$(cat /dev/urandom | LC_ALL=C tr -dc 'a-zA-Z0-9' | fold -w 32 | head -n 1); sed -i -e "s/CHANGEME/$RANDOM_STRING/g" compose.yml`
+5. Start containers: `docker compose up -d`
+6. Add Cloudflare Tunnel ingress: `hostname: panel2.saturia.codes` → `service: http://localhost:8000`
+7. Register DNS route: `cloudflared tunnel route dns <tunnel-id> panel2.saturia.codes`
+8. Access OOBE setup at `https://panel2.saturia.codes`
+
+**Enabling extension support (post-install)**: Basic AIO image does NOT support extensions (no build tools). To enable:
+1. Stop containers: `cd ~/calagopus-panel && docker compose down`
+2. Update image tag in compose.yml: `sed -i 's|image: ghcr.io/calagopus/panel:aio|image: ghcr.io/calagopus/panel:heavy-aio|' compose.yml`
+3. Add 4 volume mounts after `./logs:/var/log/calagopus` line:
+   ```bash
+   sed -i '/- \.\/logs:\/var\/log\/calagopus/a\      - ./build/binaries:/app/binaries\n      - ./build/translations:/app/translations\n      - ./build/extensions:/app/extensions\n      - ./build/extension-migrations:/app/repo/database/extension-migrations' compose.yml
+   ```
+4. Create build directories: `mkdir -p build/{binaries,translations,extensions,extension-migrations}`
+5. Pull heavy-aio image (1.29 GB, may take 5-10 min): `docker compose pull`
+6. Start containers: `docker compose up -d`
+7. Install extensions via panel UI (upload `.c7s.zip` files) or development workflow
+
+**Key gotchas**:
+- **wings-config.yml must exist as a FILE before first start**, not a directory. If the container fails with bind mount errors, stop, delete the directory, create the file, and restart.
+- **Port 8000** (panel HTTP) and **port 2022** (SFTP) must be free before starting.
+- **APP_ENCRYPTION_KEY** must be a random 32-character alphanumeric string. Do NOT change after initial setup (breaks encrypted DB columns).
+- **DNS registration requires `cloudflared tunnel route dns`** — a manual CNAME alone returns 404 from the tunnel. The hostname must be registered with the tunnel itself.
+- **Heavy-AIO image is 1.29 GB** (vs ~479 MB for basic AIO). The pull takes 5-10 minutes on typical VPS bandwidth. Run `docker compose pull` in background with a high timeout when bandwidth is limited.
+- **Extension volume mounts MUST exist before starting heavy-aio** — if build directories are missing, the container creates them as root-owned, breaking extension compilation. Create them first with `mkdir -p build/{binaries,translations,extensions,extension-migrations}`.
+- Panel data directory: `~/calagopus-panel/data/` (SQLite DB, uploads)
+- Postgres data: `~/calagopus-panel/postgres/`
+- Wings data: `/var/lib/calagopus-wings/volumes/` (game server files)
+- Service management: `docker compose ps|logs|restart|down|up -d` from `~/calagopus-panel/`
+
 ### Pelican Panel (Laravel 13 + Filament/Livewire, port 8088)
 
 Full recipe in `references/pelican-deploy.md`. Key gotchas:

@@ -117,6 +117,8 @@ re-add it with the correct port. This forces a config version bump and immediate
 ## References
 - `references/yt-dlp-api.md` — worked example: a ytmp3/ytmp4 REST API exposed through this exact flow,
   including the datacenter-IP yt-dlp flags that avoid HTTP 403.
+- `references/calagopus-wings-tunnel.md` — Calagopus Wings behind Cloudflare Tunnel: URL vs Public URL,
+  frontend/backend verification, multi-VPS setup, DNS registration pitfalls.
 
 ## See also
 - `expose-hermes-dashboard-tunnel` — dashboard-specific bind `0.0.0.0` + basic-auth requirements.
