@@ -1,0 +1,103 @@
+async function spotifyDL(trackUrl) {
+  try {
+    console.log('[spotify] Processing with spowload.cc:', trackUrl);
+
+    // Step 1: Fetch page to get CSRF token & Session Cookies
+    const pageResp = await fetch('https://spowload.cc/en2', {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36'
+      }
+    });
+
+    const pageHtml = await pageResp.text();
+
+    // Simpan semua cookie dari sesi pertama
+    const rawCookies = pageResp.headers.raw()['set-cookie'];
+    const cookieString = rawCookies ? rawCookies.map(c => c.split(';')[0]).join('; ') : '';
+
+    // Extract CSRF token
+    const csrfMatch = pageHtml.match(/name=["'](?:_token|csrf-token)["'][^>]*value=["']([^"']+)["']/i);
+    const csrfToken = csrfMatch?.[1] || '';
+
+    console.log('[spotify] CSRF token:', csrfToken ? 'Found' : 'Not found');
+
+    if (!csrfToken) {
+      throw new Error('CSRF Token tidak ditemukan di halaman.');
+    }
+
+    // Step 2: POST ke /analyze
+    const analyzeResp = await fetch('https://spowload.cc/analyze', {
+      method: 'POST',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36',
+        'Referer': 'https://spowload.cc/en2',
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'X-Requested-With': 'XMLHttpRequest',
+        'Cookie': cookieString
+      },
+      body: new URLSearchParams({
+        _token: csrfToken,
+        v_id: trackUrl,
+        host: 'https://spowload.cc/'
+      })
+    });
+
+    let data;
+    try {
+      data = await analyzeResp.json();
+    } catch {
+      throw new Error(`Analyze failed: HTTP ${analyzeResp.status}`);
+    }
+
+    if (!data?.vid) {
+      throw new Error(data?.msg || 'No video ID returned');
+    }
+
+    console.log('[spotify] Video ID:', data.vid);
+
+    // Step 3: Polling untuk dapatkan download link
+    let downloadLink = null;
+
+    for (let i = 0; i < 30; i++) {
+      await new Promise(r => setTimeout(r, 2000));
+
+      const statusResp = await fetch(`https://spowload.cc/status/${data.vid}`, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36',
+          'Cookie': cookieString
+        }
+      });
+
+      const statusData = await statusResp.json();
+
+      if (statusData?.path) {
+        downloadLink = `https://spowload.cc/storage/${statusData.path}`;
+        break;
+      }
+
+      if (statusData?.error) {
+        throw new Error(statusData.error);
+      }
+    }
+
+    if (!downloadLink) {
+      throw new Error('Download timeout');
+    }
+
+    console.log('[spotify] Download link:', downloadLink);
+    return downloadLink;
+
+  } catch (error) {
+    console.error('[spotify] Error:', error.message);
+
+    // Fallback URL Generator
+    const fallbackMatch = trackUrl.match(/(?:track\/|track:)([a-zA-Z0-9]{22})/);
+    if (fallbackMatch) {
+      return `https://spowload.cc/spotify/track-${fallbackMatch[1]}`;
+    }
+
+    throw error;
+  }
+}
+
+module.exports = { spotifyDL };
